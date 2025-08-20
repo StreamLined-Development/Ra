@@ -96,10 +96,10 @@ A automatically parallel systems programming language that emphasizes compile ti
   - Match
   ```
     match player_direction {
-        Direction.Up    -> print("Player is moving up!")
-        Direction.Down  -> print("Player is moving down!")
-        Direction.Left  -> print("Player is moving left!")
-        Direction.Right -> print("Player is moving right!")
+        Direction::Up    -> print("Player is moving up!")
+        Direction::Down  -> print("Player is moving down!")
+        Direction::Left  -> print("Player is moving left!")
+        Direction::Right -> print("Player is moving right!")
     }
   ```
   
