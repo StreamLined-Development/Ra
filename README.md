@@ -23,7 +23,7 @@ A automatically parallel systems programming language that emphasizes compile ti
 - Aria models its binary in the form of a graph of independant computations and binary blocks. And with it's MLIR backend it allows you to target both GPU and CPU architectures!
 - The compiler will detect what should be put on the cpu and what should be put on the gpu, and then mark the nodes accordingly for the runtime.
 
-  ## Syntax
+## Syntax
   ### Variables 
   ```
   let my_variable: str = "hello world!" // immutable
