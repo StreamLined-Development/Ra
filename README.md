@@ -24,13 +24,13 @@ A automatically parallel systems programming language that emphasizes compile ti
 - The compiler will detect what should be put on the cpu and what should be put on the gpu, and then mark the nodes accordingly for the runtime.
 
   ## Syntax
-  - Variables 
+  ### Variables 
   ```
   let my_variable: str = "hello world!" // immutable
   var my_variable: str = "hello world!" // mutable
   ```
 
-  - Pointers
+  ### Pointers
   ```
   var my_number_ptr: &i32 = my_number  // can be re-assigned but cannot mutate the value it points to
   var mut my_number_ptr: &i32 = my_number  // can be re-assigned and can mutate the value it points to
@@ -38,7 +38,7 @@ A automatically parallel systems programming language that emphasizes compile ti
   let mut my_number_ptr: &i32 = my_number  // cannot be re-assigned but can mutate the value it points to
   ```
 
-  - Functions
+  ### Functions
   ```
   // pass by copy
   fun add(x: i32, y:i32) -> i32{
@@ -59,7 +59,7 @@ A automatically parallel systems programming language that emphasizes compile ti
   }
   ```
 
-  - Guards
+  ### Guards
   ```
   fun absolute(x:i32:mut) -> u32{
 		| x < 0   -> -x
@@ -74,7 +74,7 @@ A automatically parallel systems programming language that emphasizes compile ti
   }
   ```
 
-  - Enums
+  ### Enums
   ```
   enum Direction {
 	Up,
@@ -93,7 +93,7 @@ A automatically parallel systems programming language that emphasizes compile ti
 
   let shape_of_wheel: Shape = Shape::Circle(25.12);
   ```
-  - Match
+  ### Match
   ```
     match player_direction {
         Direction::Up    -> print("Player is moving up!")
