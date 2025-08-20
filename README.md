@@ -20,7 +20,7 @@ A automatically parallel systems programming language that emphasizes compile ti
   9. The compiler first marks objects as potentially cyclic during pointer analysis (flagging assignments that could create cycles). At runtime, when dealloc(x) triggers for a flagged object, a lightweight depth-limited DFS checks if x belongs to an isolated reference cycle (objects referencing only each other). If true, the entire cycle is freed; if external references exist, normal last-use deallocation proceeds. 
 
 ### Parallelism
-- Aria models its binary in the form of a graph of independant computations and binary blocks. And with it's MLIR backend it allows you to taeget both GPU and CPU architectures!
+- Aria models its binary in the form of a graph of independant computations and binary blocks. And with it's MLIR backend it allows you to target both GPU and CPU architectures!
 - The compiler will detect what should be put on the cpu and what should be put on the gpu, and then mark the nodes accordingly for the runtime.
 
   ## Syntax
