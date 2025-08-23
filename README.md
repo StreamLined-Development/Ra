@@ -93,6 +93,35 @@ A automatically parallel systems programming language that emphasizes compile ti
 
   let shape_of_wheel: Shape = Shape::Circle(25.12);
   ```
+  ### Structs
+  ```
+  struct Person {
+	name: str,
+	age: u8,
+	height: f16
+  }
+
+  let instance: Person =  {
+	name = "Jason"
+	age = "20"
+	height = 1.81
+  }
+
+  ```
+  ### Generic Structs
+  ```
+   struct Idk<T>{
+	 member_one: T,
+	 member_two: T,
+	 member_thee:T
+   }
+
+  let object: Idk<str> = {
+	 member_one = "hi"
+	 member_two = "bye"
+	 memeber_three = "hi again"
+}
+  ```
   ### Match
   ```
     match player_direction {
@@ -102,9 +131,32 @@ A automatically parallel systems programming language that emphasizes compile ti
         Direction::Right -> print("Player is moving right!")
     }
   ```
+  ### Arrays
+  ```
+  let myNumbers[4]: array<i16> = {25, 50, 75, 100};
+  ```
+  ### Vectors
+  ```
+  var myNumbers: Vec<i16> = alloc vec(i16);
+  ```
+  ### Varidadic Types
+  ```
+  fun sum(numbers: i32**) -> i32 {
+    var total: i32 = 0
+    for i in 0..numbers.len() {
+        total = total + numbers[i]
+    }
+    return total
+    }
+    let a: i32 = sum(10, 55, 28, 77)
+
+    /// ===== Variadic Generics =====
+   fun print_all<T>(numbers: T**) -> void {
+     println(numbers)
+    }
+    print_all("11", 55, 'A', 26.05)
+  ```  
   
-
-
 
 
 
