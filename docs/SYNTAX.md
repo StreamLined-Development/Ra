@@ -1,5 +1,5 @@
-# 3dom lang - Syntax
-The Syntax of 3dom tries to be as high level as possible, while being a low level language.
+# Arc - Syntax
+The Syntax of Arc tries to be as high level as possible, while being a low level language.
 Also the Syntax is heavily inspired by Kotlin and Zig.
 
 # Imports

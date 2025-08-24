@@ -1,7 +1,7 @@
-# 3dom Standard Library
+# Arc Standard Library
 
 > Status: Draft — version 0.1.0-stdlib  
-> Complements `3dom_SPEC.md`.  
+> Complements `SPEC.md`.  
 > The standard library is intentionally **minimal**, focusing on:  
 > - deterministic building blocks  
 > - explicit memory ownership  

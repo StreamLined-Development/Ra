@@ -1,4 +1,4 @@
-# 3dom Language Specification
+# Arc Language Specification
 
 > Status: Draft — version 0.1.0-spec  
 > Design goals: low-level control (Zig spirit), ergonomic syntax (Kotlin vibes), deterministic semantics, explicit memory ownership, no garbage collector.
@@ -91,7 +91,7 @@
 
 ## 8. Memory model (explicit: **no GC**)
 
-**Strong, explicit rule:** 3dom has **no garbage collector**. Memory management is manual and explicit.
+**Strong, explicit rule:** Arc has **no garbage collector**. Memory management is manual and explicit.
 
 ### 8.1 Allocators
 
