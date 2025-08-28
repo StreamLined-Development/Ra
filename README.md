@@ -286,8 +286,8 @@ let my_vector: Vec<i32> = new Vec(i32) // or Blank() for a clean slate
 						|> Growth_Rate(1.5)
 						|> lifo()
 ```
-### Macros ( syntx WIP)
-```
+### Macros ( syntax WIP)
+``` rust
 /// ==== defer macros ====
 macro fun hello_macro(ast: tokens) -> tokens {
 	val id: str = to_str(ast.id)
