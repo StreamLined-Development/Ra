@@ -337,7 +337,47 @@ fun add(x: i32, y: i32) i32 {
 		return x + y
 }
 ```
-  
+### Multi Processing
+- $ indicates a PID
+``` TypeScript
+process Switch {
+		var is_on: bool = false
+}
+
+impl Switch {
+		message turn_on() {
+        self.is_on = true;
+				print("💡 The light is now ON");	
+		}
+		message turn_off() {
+        self.is_on = false;
+        print("💡 The light is now OFF");
+    }
+    message check() {
+        return self.is_on;
+    }
+}
+
+// ============================================================
+fun main(){
+		let my_switch: $Switch = spawn Switch();
+		
+		my_switch.turn_on();
+		
+		var my_check: bool = my_switch.check(); // true
+
+		my_switch.turn_off();
+		
+		my_check: bool = my_switch.check(); // false
+		
+```
+### Async
+- Each process has its own event loop
+``` TypeScript
+my_switch.turn_off();
+// will do other work while it waits
+my_check: bool = await my_switch.check(); 
+```
 
 
 
