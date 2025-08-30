@@ -1,12 +1,12 @@
-# Aria
+# Ra
 A automatically parallel systems programming language that emphasizes compile time memory safety, type safety and permission scope safety.  All while offering a simple syntax and automated compile time memory management.
 
-## AriaLang's two main features
+## RaLang's two main features
 - The memory management system you've been dreaming of
 - A graph parallelization engine inpired by Interaction Combinators, with potentially seamless GPU-CPU co-ordination.
 
 ### Memory Management 
-- Aria uses mostly static analysis to track **variable scope** and **variable aliasing**.
+- Ra uses mostly static analysis to track **variable scope** and **variable aliasing**.
 - In this language, you allocate, the compiler de-allocates. You can even create your own **custom alloctors!**
 - Here is a breif explination of how it works:
   1. Manual Heap Allocation
