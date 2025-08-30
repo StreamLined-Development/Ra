@@ -262,8 +262,8 @@ for i in 1...10 {
 /// ===== Assembly =====
 // simple asm
 let y: i32 = asm { mov eax, 10; 
-									 add eax, 20; 
-									 eax }
+					add eax, 20; 
+					eax }
 // integrated assembly
 let y: i32 = assembly {
     inputs: a, b
