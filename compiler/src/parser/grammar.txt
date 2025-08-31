@@ -1,0 +1,171 @@
+// ===== Program Structure =====
+program         = { import_stmt | declaration | function_def | struct_def | enum_def | trait_def | impl_block | macro_def | generic_constraint | type_alias }
+
+// ===== Imports =====
+import_stmt     = "import" identifier [ "::" version ] "as" identifier ";"
+version         = digit+ "." digit+
+
+// ===== Variables and Declarations =====
+declaration     = ( "var" | "let" | "const" ) [ "mut" ] [ reference_modifier | pointer_modifier ] 
+                  identifier [ ":" type ] [ "=" expression ] ";"
+
+reference_modifier = "&" [ "mut" ]
+pointer_modifier = "^" [ "mut" ]
+
+// ===== Types =====
+type            = basic_type | named_type | generic_type | tuple_type | array_type | function_type | reference_type | pointer_type
+
+basic_type      = ( "i" | "u" ) ( "8" | "16" | "32" | "64" | "128" | digit+ )
+                | ( "f" ( "16" | "32" | "64" | "128" ) )
+                | ( "str" ( "A" | "16" | "32" )? )
+                | "char" | "tuple" | "bool" | "isize" | "usize" | "type" | "tokens" | "void"
+
+named_type      = identifier
+generic_type    = identifier "<" type { "," type } ">"
+tuple_type      = "(" type { "," type } ")"
+array_type      = identifier "[" expression "]" ":" "array" "<" type ">"
+function_type   = "fun" "(" [ parameter { "," parameter } ] ")" "->" type
+reference_type  = "&" [ "mut" ] type
+pointer_type    = "^" [ "mut" ] type
+
+// ===== Expressions =====
+expression      = literal
+                | identifier
+                | unary_operator expression
+                | expression binary_operator expression
+                | expression "?"                                  // error propagation
+                | expression ":" expression ":" expression        // pipe operator
+                | expression "><" expression                      // range check
+                | expression "/?/" expression                     // divisibility check
+                | function_call
+                | struct_literal
+                | enum_variant
+                | match_expression
+                | if_expression
+                | block_expression
+                | assembly_expression
+                | cmd_expression
+                | "(" expression ")"
+                | type_check_expression
+
+literal         = number | string | char | "true" | "false" | "null" | array_literal | tuple_literal
+number          = digit+ [ "." digit+ ] [ exponent ]
+exponent        = ( "e" | "E" ) [ "+" | "-" ] digit+
+string          = "\"" { string_char } "\""
+string_char     = escape_seq | any_char_except_quote
+escape_seq      = "\\" ( "n" | "t" | "r" | "\\" | "\"" | "'" )
+char            = "'" ( escape_seq | any_char_except_apostrophe ) "'"
+array_literal   = "{" expression { "," expression } "}"
+tuple_literal   = "(" expression { "," expression } ")"
+
+function_call   = identifier [ "::" "<" type_args ">" ] "(" [ argument_list ] ")"
+type_args       = type { "," type }
+argument_list   = expression { "," expression }
+
+struct_literal  = "{" field_init { "," field_init } "}"
+field_init      = identifier "=" expression
+
+enum_variant    = identifier "::" identifier [ "(" [ argument_list | field_init_list ] ")" ]
+field_init_list = field_init { "," field_init }
+
+// ===== Pattern Matching =====
+match_expression = "match" expression "{" { match_arm } "}"
+match_arm       = pattern "=>" expression ";"
+pattern         = literal | identifier | "_" | range_pattern | or_pattern | struct_pattern | enum_pattern
+range_pattern   = expression "..." expression | expression ".." expression
+or_pattern      = pattern "|" pattern
+struct_pattern  = identifier "{" field_pattern { "," field_pattern } "}"
+field_pattern   = identifier [ ":" pattern ]
+enum_pattern    = identifier "::" identifier [ "(" [ pattern_list | field_pattern_list ] ")" ]
+pattern_list    = pattern { "," pattern }
+field_pattern_list = field_pattern { "," field_pattern }
+
+// ===== Control Flow =====
+if_expression   = "if" expression block [ "else" ( "if" expression block | block ) ]
+while_loop      = "while" "(" expression [ "," expression ] ")" block
+for_loop        = "for" identifier ":" type "in" expression block
+block           = "{" { statement } [ expression ] "}"
+block_expression = "{" { statement } expression "}"
+
+// ===== Functions =====
+function_def    = [ attribute_list ] [ "comptime" ] "fun" identifier [ "<" generic_params ">" ] 
+                  "(" [ parameter_list ] ")" "->" type 
+                  ( block | guard_body )
+
+parameter_list  = parameter { "," parameter }
+parameter       = [ "mut" ] [ reference_modifier | pointer_modifier ] identifier ":" type
+generic_params  = identifier { "," identifier }
+
+guard_body      = "{" { guard_clause } "}"
+guard_clause    = "|" expression "->" expression ";"
+
+// ===== Structs and Enums =====
+struct_def      = [ attribute_list ] "struct" identifier [ "<" generic_params ">" ] 
+                  "{" { field_decl } "}"
+field_decl      = identifier ":" type ","
+
+enum_def        = [ attribute_list ] "enum" identifier [ "<" generic_params ">" ] 
+                  "{" { variant } "}"
+variant         = identifier [ "(" [ parameter_list | field_decl_list ] ")" ] ","
+field_decl_list = field_decl { "," field_decl }
+
+// ===== Traits and Implementations =====
+trait_def       = "trait" identifier [ "<" generic_params ">" ] 
+                  "{" { trait_item } "}"
+trait_item      = function_def ";"
+impl_block      = "impl" identifier [ "<" generic_params ">" ] 
+                  "for" type block
+
+// ===== Macros =====
+macro_def       = "macro" "fun" identifier "(" macro_params ")" "->" "tokens" block
+macro_params    = identifier ":" "tokens" { "," identifier ":" "tokens" }
+
+// ===== Attributes =====
+attribute_list  = attribute { attribute }
+attribute       = "@" identifier [ "(" [ attr_args ] ")" ]
+attr_args       = expression { "," expression }
+
+// ===== Special Constructs =====
+assembly_expression = "asm" block | "assembly" block
+cmd_expression  = "cmd" "(" string ")" | "shell" "(" ")"
+type_check_expression = expression "==" type
+
+// ===== Generic Constraints =====
+generic_constraint = "generic" identifier "{" type_list "}"
+type_list       = type { "," type }
+
+// ===== Type Operations =====
+type_alias      = "alias" identifier "=" type ";"
+type_merge      = type ":>" type { ":>" type }
+
+// ===== Allocators =====
+allocator_def   = "allocator" identifier "(" parameter_list ")" block
+
+// ===== Statements =====
+statement       = declaration
+                | expression ";"
+                | return_statement
+                | inline_statement
+                | comptime_statement
+                | break_statement
+                | continue_statement
+
+return_statement = "return" [ expression ] ";"
+inline_statement = "inline" ( expression | for_loop ) ";"
+comptime_statement = "comptime" ( declaration | block | expression ) ";"
+break_statement = "break" ";"
+continue_statement = "continue" ";"
+
+// ===== Operators =====
+unary_operator  = "!" | "-" | "^" | "&" | "mut" | "*"
+binary_operator = "+" | "-" | "*" | "/" | "%" | "==" | "!=" | "<" | ">" | "<=" | ">=" 
+                | "&&" | "||" | "=" | "and" | "or" | "|" | "&" | "^" | "<<" | ">>"
+
+// ===== Identifiers and Basic Elements =====
+identifier      = ( letter | "_" ) { letter | digit | "_" }
+digit           = "0" | "1" | "2" | "3" | "4" | "5" | "6" | "7" | "8" | "9"
+letter          = "a" | "b" | ... | "z" | "A" | "B" | ... | "Z"
+
+// ===== Comments =====
+comment         = "//" { any_char_except_newline } newline
+                | "/*" { any_char } "*/"

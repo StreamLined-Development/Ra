@@ -1,0 +1,34 @@
+AST:
+Program {
+  [0] Expression: WhileExpression {
+    condition: BinaryOp {
+      left: Identifier("i")
+      operator: "<"
+      right: Literal(int: 5)
+  }
+    body: BlockExpression {
+      statements: [
+        [0] ExpressionStatement: FunctionCall {
+            name: "println"
+            args: [
+              [0] Identifier("i")
+            ]
+        }
+        [1] ExpressionStatement: BinaryOp {
+            left: Identifier("i")
+            operator: "="
+            right: BinaryOp {
+              left: Identifier("i")
+              operator: "+"
+              right: Literal(int: 1)
+          }
+        }
+        [2] Declaration {
+          kind: fun_decl
+          name: "add"
+          initializer: null
+        }
+      ]
+  }
+}
+}

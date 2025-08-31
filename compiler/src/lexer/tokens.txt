@@ -1,0 +1,12 @@
+Token: kw_generic (generic) at line 1, col 8
+Token: identifier (F) at line 1, col 10
+Token: left_brace ({) at line 1, col 12
+Token: identifier (f16) at line 1, col 15
+Token: comma (,) at line 1, col 16
+Token: identifier (f32) at line 1, col 20
+Token: comma (,) at line 1, col 21
+Token: identifier (f64) at line 1, col 25
+Token: comma (,) at line 1, col 26
+Token: identifier (f128) at line 1, col 31
+Token: right_brace (}) at line 1, col 32
+Token: eof () at line 1, col 32
