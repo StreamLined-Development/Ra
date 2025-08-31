@@ -60,3 +60,42 @@ let object: Idk<str> = {
 }
 ```
 ### Enums
+``` rust
+// ==== Enums ====
+enum Direction {
+	Up,
+	Down,
+	Left,
+	Right
+}
+
+let my_direction: Direction = Direction::Up;
+
+enum Shape {
+    Circle(f64),          // stores a radius
+    Rectangle(f64, f64),  // stores width, height
+    Square(side: f64),    // named field style
+}
+
+let shape_of_wheel: Shape = Shape::Circle(25.12);
+```
+### Generic Enums
+``` rust
+// ==== Enums ====
+enum Direction {
+	Up,
+	Down,
+	Left,
+	Right
+}
+
+let my_direction: Direction = Direction::Up;
+
+enum Shape {
+    Circle(f64),          // stores a radius
+    Rectangle(f64, f64),  // stores width, height
+    Square(side: f64),    // named field style
+}
+
+let shape_of_wheel: Shape = Shape::Circle(25.12);
+```
