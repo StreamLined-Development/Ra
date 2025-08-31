@@ -1,10 +1,14 @@
 AST:
 Program {
   [0] Expression: WhileExpression {
-    condition: BinaryOp {
-      left: Identifier("i")
-      operator: "<"
-      right: Literal(int: 5)
+    condition: TupleLiteral {
+      elements: [
+        [0] BinaryOp {
+            left: Identifier("i")
+            operator: "<"
+            right: Literal(int: 5)
+        }
+      ]
   }
     body: BlockExpression {
       statements: [
