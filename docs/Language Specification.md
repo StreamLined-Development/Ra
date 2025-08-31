@@ -10,7 +10,7 @@
 
 ## 0. Scope & Goals
 
-- **Primary goals:** predictable manual memory management, explicit error handling, simple concurrency primitives with scoped locking, low-level control (pointer arithmetic, sized types).
+- **Primary goals:** predictable manual memory allocations, automatic deallocations, explicit error handling, simple concurrency primitives with scoped locking, low-level control (pointer arithmetic, sized types).
 - **Non-goals:** automatic garbage collection, implicit exceptions, hidden runtime allocations.
 
 ---
