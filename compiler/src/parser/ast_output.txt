@@ -1,38 +1,32 @@
 AST:
 Program {
-  [0] Expression: WhileExpression {
-    condition: TupleLiteral {
-      elements: [
-        [0] BinaryOp {
-            left: Identifier("i")
-            operator: "<"
-            right: Literal(int: 5)
-        }
+  [0] StructDef {
+    name: "Person"
+    fields: [
+      [0] priv name: BasicType("str")
+      [1] priv age: BasicType("i32")
+    ]
+}
+  [1] Declaration {
+    kind: let_decl
+    name: "a"
+    is_mut: false
+    type: NamedType("Person")
+    initializer: StructLiteral {
+      fields: [
+        [0] name = Literal(string: ""Alice"")
+        [1] age = Literal(int: 30)
       ]
   }
-    body: BlockExpression {
-      statements: [
-        [0] ExpressionStatement: FunctionCall {
-            name: "println"
-            args: [
-              [0] Identifier("i")
-            ]
-        }
-        [1] ExpressionStatement: BinaryOp {
-            left: Identifier("i")
-            operator: "="
-            right: BinaryOp {
-              left: Identifier("i")
-              operator: "+"
-              right: Literal(int: 1)
-          }
-        }
-        [2] Declaration {
-          kind: fun_decl
-          name: "add"
-          initializer: null
-        }
-      ]
+}
+  [2] Declaration {
+    kind: let_decl
+    name: "b"
+    is_mut: false
+    type: BasicType("str")
+    initializer: MemberAccess {
+      object: Identifier("a")
+      member: "bob"
   }
 }
 }

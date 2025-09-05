@@ -43,12 +43,14 @@ pub const Declaration = struct {
     type_annotation: ?Type,
     initializer: ?Expression,
     fields: ?[]Field,
+    attributes: ?[]MacroCall,
 };
 
 pub const Field = struct {
     name: []const u8,
     type_annotation: Type,
     initializer: ?Expression,
+    is_public: bool,
 };
 
 pub const ImplBlock = struct {
@@ -76,6 +78,7 @@ pub const Parameter = struct {
     param_type: Type,
     is_mut: bool,
     is_ref: bool,
+    is_copy: bool,
 };
 
 pub const Expression = union(enum) {
@@ -91,9 +94,12 @@ pub const Expression = union(enum) {
     dereference: *Expression,
     member_access: MemberAccess,
     tuple_literal: []Expression,
+    struct_literal: StructLiteral,
     range_expr: RangeExpression,
     for_expr: ForExpression,
     while_expr: WhileExpression,
+    loop_expr: LoopExpression,
+    macro_call: MacroCall,
 };
 
 pub const RangeExpression = struct {
@@ -106,11 +112,21 @@ pub const ForExpression = struct {
     variable: []const u8,
     iterable: *Expression,
     body: Block,
+    is_inline: bool,
 };
 
 pub const WhileExpression = struct {
     condition: *Expression,
     body: Block,
+};
+
+pub const LoopExpression = struct {
+    body: Block,
+};
+
+pub const MacroCall = struct {
+    name: []const u8,
+    args: []Expression,
 };
 
 pub const Literal = union(enum) {
@@ -124,6 +140,8 @@ pub const Literal = union(enum) {
 pub const FunctionCall = struct {
     name: []const u8,
     args: []Expression,
+    is_inline: bool,
+    type_args: ?[]Type,
 };
 
 pub const BinaryOp = struct {
@@ -212,6 +230,15 @@ pub const MethodCall = struct {
     object: *Expression,
     method: []const u8,
     args: []Expression,
+};
+
+pub const StructLiteral = struct {
+    fields: []StructField,
+};
+
+pub const StructField = struct {
+    name: []const u8,
+    value: Expression,
 };
 
 pub const GenericDef = struct {

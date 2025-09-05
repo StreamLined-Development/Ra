@@ -1,5 +1,0 @@
-while (i < 5) {
-    println(i);
-    i = i + 1;
-    fun add(x: i32) -> i32 {}
-}

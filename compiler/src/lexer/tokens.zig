@@ -174,6 +174,7 @@ pub const TokenType = enum {
     double_dot,
     double_quotes,
     quotes,
+    underscore, // _
 
     // Delimiters - Brackets
     left_bracket,

@@ -99,3 +99,38 @@ enum Shape {
 
 let shape_of_wheel: Shape = Shape::Circle(25.12);
 ```
+
+### Loops
+``` rust
+// ==== Loops ====
+// Infinite loop
+loop {
+    println("infinite loop");
+}
+
+// While loop
+while (condition) {
+    // body
+}
+
+// For loop
+for item in collection {
+    // body
+}
+```
+
+### Inline Functions
+``` rust
+// ==== Inline Functions ====
+fun fast_add(x: i32, y: i32) -> i32 {
+    return x + y;
+}
+
+// Inline function call
+let result = inline fast_add(5, 3);
+
+// Inline for loop
+inline for item in collection {
+    println(item);
+}
+```

@@ -15,12 +15,34 @@ pub fn build(b: *std.Build) void {
 
     b.installArtifact(exe);
 
-    const run_step = b.step("run", "Run the app");
+    const analyzer_exe = b.addExecutable(.{
+        .name = "analyzer",
+        .root_module = b.createModule(.{
+            .root_source_file = b.path("src/analyzer_main.zig"),
+            .target = target,
+            .optimize = optimize,
+        }),
+    });
+
+    b.installArtifact(analyzer_exe);
+
+    const run_step = b.step("run", "Run parser then analyzer");
+    const analyze_step = b.step("analyze", "Run syntax analyzer only");
 
     const run_cmd = b.addRunArtifact(exe);
-    run_step.dependOn(&run_cmd.step);
+    const analyze_cmd = b.addRunArtifact(analyzer_exe);
+    
+    // Make analyzer depend on parser completion
+    analyze_cmd.step.dependOn(&run_cmd.step);
+    
+    // Run step runs both parser and analyzer
+    run_step.dependOn(&analyze_cmd.step);
+    
+    // Analyze step runs only analyzer
+    analyze_step.dependOn(&analyze_cmd.step);
 
     run_cmd.step.dependOn(b.getInstallStep());
+    analyze_cmd.step.dependOn(b.getInstallStep());
 
     if (b.args) |args| {
         run_cmd.addArgs(args);
