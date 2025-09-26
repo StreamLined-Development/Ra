@@ -62,10 +62,17 @@ pub const TokenType = enum {
     kw_else,
     kw_and,
     kw_or,
+    kw_try,
+    kw_ifNull,
+    kw_ifErr,
 
     // keywords - random
     impl,
+    kw_implement,
+    kw_must,
+    kw_where,
     kw_pub,
+    kw_priv,
     kw_mut,
 
     // keywords Concurrency

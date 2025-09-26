@@ -2,6 +2,7 @@ const std = @import("std");
 const tokenize = @import("lexer/lexer.zig").tokenize;
 const parse = @import("parser/parser.zig").parse;
 const print_ast = @import("parser/parser.zig").print_ast;
+const cleanup_ast = @import("parser/parser.zig").cleanup_ast;
 
 pub fn main() !void {
     var gpa = std.heap.GeneralPurposeAllocator(.{}){};
@@ -38,16 +39,22 @@ pub fn main() !void {
         return;
     };
     
-    // Print AST
-    try print_ast(allocator, program);
+    // AST will be printed by syntactic analyzer after type conversion
     
     // Run syntax analysis
     const syntactic_analyzer = @import("ast_analysis/syntactic_analyzer.zig");
     const errors = syntactic_analyzer.analyze_syntax(allocator, program) catch |err| {
         std.debug.print("Syntax analysis error: {}\n", .{err});
+        cleanup_ast(allocator, program);
         return;
     };
-    defer allocator.free(errors);
+    defer {
+        // Free error messages
+        for (errors) |error_item| {
+            allocator.free(error_item.message);
+        }
+        allocator.free(errors);
+    }
     
     if (errors.len == 0) {
         std.debug.print("✓ No syntax errors found\n", .{});
@@ -58,5 +65,9 @@ pub fn main() !void {
         }
     }
     
+    // Free AST memory
+    cleanup_ast(allocator, program);
+    
     std.debug.print("Parsing complete. AST written to src/parser/ast_output.txt\n", .{});
 }
+

@@ -20,9 +20,11 @@ pub const SyntacticAnalyzer = struct {
     function_generic_counts: std.StringHashMap(usize),
     function_signatures: std.StringHashMap([]AST.Type),
     variable_types: std.StringHashMap([]const u8),
+    reference_variables: std.StringHashMap(bool), // true = mutable, false = immutable
     current_function_return_type: ?AST.Type,
     generic_constraints: std.StringHashMap([][]const u8),
     current_function_generics: std.StringHashMap(void),
+    trait_implementations: std.StringHashMap(std.StringHashMap(void)), // type -> set of implemented traits
     
     pub fn init(allocator: Allocator) SyntacticAnalyzer {
         return SyntacticAnalyzer{
@@ -37,14 +39,27 @@ pub const SyntacticAnalyzer = struct {
             .function_generic_counts = std.StringHashMap(usize).init(allocator),
             .function_signatures = std.StringHashMap([]AST.Type).init(allocator),
             .variable_types = std.StringHashMap([]const u8).init(allocator),
+            .reference_variables = std.StringHashMap(bool).init(allocator),
             .current_function_return_type = null,
             .generic_constraints = std.StringHashMap([][]const u8).init(allocator),
             .current_function_generics = std.StringHashMap(void).init(allocator),
+            .trait_implementations = std.StringHashMap(std.StringHashMap(void)).init(allocator),
         };
     }
     
     pub fn deinit(self: *SyntacticAnalyzer) void {
+        // Free error messages
+        for (self.errors.items) |error_item| {
+            self.allocator.free(error_item.message);
+        }
         self.errors.deinit();
+        
+        // Free function signatures
+        var sig_iter = self.function_signatures.iterator();
+        while (sig_iter.next()) |entry| {
+            self.allocator.free(entry.value_ptr.*);
+        }
+        
         self.declared_structs.deinit();
         self.struct_definitions.deinit();
         self.declared_enums.deinit();
@@ -54,8 +69,15 @@ pub const SyntacticAnalyzer = struct {
         self.function_generic_counts.deinit();
         self.function_signatures.deinit();
         self.variable_types.deinit();
+        self.reference_variables.deinit();
         self.generic_constraints.deinit();
         self.current_function_generics.deinit();
+        
+        var impl_iter = self.trait_implementations.iterator();
+        while (impl_iter.next()) |entry| {
+            entry.value_ptr.deinit();
+        }
+        self.trait_implementations.deinit();
     }
     
     pub fn analyze(self: *SyntacticAnalyzer, program: AST.Program) ![]SyntacticError {
@@ -67,12 +89,19 @@ pub const SyntacticAnalyzer = struct {
     
     fn analyze_node(self: *SyntacticAnalyzer, node: AST.ASTNode) std.mem.Allocator.Error!void {
         switch (node) {
-            .declaration => |decl| try self.analyze_declaration(decl),
+            .declaration => |decl| {
+                std.debug.print("DEBUG: Analyzing declaration: {s}\n", .{decl.name});
+                try self.analyze_declaration(decl);
+            },
             .function_def => |func| try self.analyze_function(func),
-            .expression => |expr| try self.analyze_expression(expr),
+            .expression => |expr| {
+                std.debug.print("DEBUG: Analyzing expression\n", .{});
+                try self.analyze_expression(expr);
+            },
             .struct_def => |struct_def| try self.register_struct(struct_def),
             .enum_def => |enum_def| try self.register_enum(enum_def),
             .generic_def => |generic_def| try self.register_generic_constraint(generic_def),
+            .impl_block => |impl_block| try self.register_trait_implementation(impl_block),
             else => {},
         }
     }
@@ -92,25 +121,14 @@ pub const SyntacticAnalyzer = struct {
             try self.validate_function_declaration(decl);
             
             // Track function generic parameter count
-            var generic_count: usize = 0;
-            if (decl.fields) |fields| {
-                for (fields) |field| {
-                    if (field.type_annotation == .named and std.mem.eql(u8, field.type_annotation.named, "<generic>")) {
-                        generic_count += 1;
-                    } else {
-                        break; // Generic parameters come first
-                    }
-                }
-            }
+            const generic_count = if (decl.generic_params) |params| params.len else 0;
             try self.function_generic_counts.put(decl.name, generic_count);
             
             // Track function parameter types
             if (decl.fields) |fields| {
                 var param_types = std.ArrayList(AST.Type).init(self.allocator);
                 for (fields) |field| {
-                    if (field.type_annotation != .named or !std.mem.eql(u8, field.type_annotation.named, "<generic>")) {
-                        try param_types.append(field.type_annotation);
-                    }
+                    try param_types.append(field.type_annotation);
                 }
                 try self.function_signatures.put(decl.name, try param_types.toOwnedSlice());
             }
@@ -125,19 +143,20 @@ pub const SyntacticAnalyzer = struct {
             
             // Register function-level generic parameters and function parameters
             self.current_function_generics.clearRetainingCapacity();
+            if (decl.generic_params) |generic_params| {
+                for (generic_params) |param| {
+                    try self.current_function_generics.put(param.name, {});
+                }
+            }
             if (decl.fields) |fields| {
                 for (fields) |field| {
-                    if (field.type_annotation == .named and std.mem.eql(u8, field.type_annotation.named, "<generic>")) {
-                        try self.current_function_generics.put(field.name, {});
-                    } else {
-                        // Register function parameters with their types
-                        const param_type_name = switch (field.type_annotation) {
-                            .named => |name| name,
-                            .basic => |name| name,
-                            else => "unknown",
-                        };
-                        try self.variable_types.put(field.name, param_type_name);
-                    }
+                    // Register function parameters with their types
+                    const param_type_name = switch (field.type_annotation) {
+                        .named => |name| name,
+                        .basic => |name| name,
+                        else => "unknown",
+                    };
+                    try self.variable_types.put(field.name, param_type_name);
                 }
             }
             
@@ -153,9 +172,7 @@ pub const SyntacticAnalyzer = struct {
             // Clear function parameter types
             if (decl.fields) |fields| {
                 for (fields) |field| {
-                    if (field.type_annotation != .named or !std.mem.eql(u8, field.type_annotation.named, "<generic>")) {
-                        _ = self.variable_types.remove(field.name);
-                    }
+                    _ = self.variable_types.remove(field.name);
                 }
             }
         }
@@ -165,14 +182,35 @@ pub const SyntacticAnalyzer = struct {
             try self.validate_type_usage(type_ann);
             
             // Store variable type for member access validation
-            if (type_ann == .named) {
-                try self.variable_types.put(decl.name, type_ann.named);
+            const type_name = switch (type_ann) {
+                .named => |name| name,
+                .struct_type => |name| name,
+                .enum_type => |name| name,
+                else => null,
+            };
+            if (type_name) |name| {
+                try self.variable_types.put(decl.name, name);
+            }
+            
+            // Track if this is a reference variable
+            if (type_ann == .reference) {
+                // A reference is mutable only if explicitly declared with 'mut'
+                const is_mutable = decl.is_mut;
+                std.debug.print("DEBUG: Registering reference variable '{s}' as mutable: {}\n", .{decl.name, is_mutable});
+                try self.reference_variables.put(decl.name, is_mutable);
             }
             
             // If this is a struct type with an initializer, validate the struct literal
             if (decl.initializer) |initializer| {
-                if (initializer == .struct_literal and type_ann == .named) {
-                    try self.validate_struct_literal_for_type(initializer.struct_literal, type_ann.named);
+                if (initializer == .struct_literal) {
+                    const struct_type_name = switch (type_ann) {
+                        .named => |name| name,
+                        .struct_type => |name| name,
+                        else => null,
+                    };
+                    if (struct_type_name) |name| {
+                        try self.validate_struct_literal_for_type(initializer.struct_literal, name);
+                    }
                 }
             }
         }
@@ -180,6 +218,14 @@ pub const SyntacticAnalyzer = struct {
         // Analyze initializer expression (including function calls)
         if (decl.initializer) |initializer| {
             try self.analyze_expression(initializer);
+            
+            // If no explicit type annotation, infer type from initializer
+            if (decl.type_annotation == null) {
+                const inferred_type = self.infer_expression_return_type(initializer);
+                if (inferred_type) |type_name| {
+                    try self.variable_types.put(decl.name, type_name);
+                }
+            }
             
             // Validate type-value mismatch
             if (decl.type_annotation) |expected_type| {
@@ -235,14 +281,18 @@ pub const SyntacticAnalyzer = struct {
     
     fn validate_function_declaration(self: *SyntacticAnalyzer, decl: AST.Declaration) !void {
         // Register function-level generic parameters as valid types
+        if (decl.generic_params) |generic_params| {
+            for (generic_params) |param| {
+                // Register this generic as a valid type for this function scope
+                std.debug.print("DEBUG: Registering generic parameter: {s}\n", .{param.name});
+                try self.declared_structs.put(param.name, {});
+                try self.current_function_generics.put(param.name, {});
+            }
+        }
+        
+        // Check parameter modifiers
         if (decl.fields) |fields| {
             for (fields) |field| {
-                // Check if this is a generic parameter (has type "<generic>")
-                if (field.type_annotation == .named and std.mem.eql(u8, field.type_annotation.named, "<generic>")) {
-                    // Register this generic as a valid type for this function scope
-                    try self.declared_structs.put(field.name, {});
-                }
-                
                 if (field.initializer) |initializer| {
                     switch (initializer) {
                         .identifier => |id| {
@@ -370,6 +420,15 @@ pub const SyntacticAnalyzer = struct {
                     try self.analyze_expression(arm.body.*);
                 }
             },
+            .binary_op => |binop| {
+                // Check for assignment to reference variable
+                if (std.mem.eql(u8, binop.operator, "=")) {
+                    std.debug.print("DEBUG: Found assignment operation\n", .{});
+                    try self.validate_assignment(binop.left.*);
+                }
+                try self.analyze_expression(binop.left.*);
+                try self.analyze_expression(binop.right.*);
+            },
             else => {},
         }
     }
@@ -419,6 +478,18 @@ pub const SyntacticAnalyzer = struct {
         try self.generic_constraints.put(generic_def.name, generic_def.constraints);
     }
     
+    fn register_trait_implementation(self: *SyntacticAnalyzer, impl_block: AST.ImplBlock) !void {
+        if (impl_block.trait_name) |trait_name| {
+            if (self.trait_implementations.getPtr(impl_block.type_name)) |type_traits| {
+                try type_traits.put(trait_name, {});
+            } else {
+                var new_set = std.StringHashMap(void).init(self.allocator);
+                try new_set.put(trait_name, {});
+                try self.trait_implementations.put(impl_block.type_name, new_set);
+            }
+        }
+    }
+    
     fn validate_type_usage(self: *SyntacticAnalyzer, type_node: AST.Type) std.mem.Allocator.Error!void {
         switch (type_node) {
             .named => |name| {
@@ -434,6 +505,28 @@ pub const SyntacticAnalyzer = struct {
                 
                 if (!is_enum and !is_struct) {
                     const msg = try std.fmt.allocPrint(self.allocator, "Type '{s}' used before declaration", .{name});
+                    try self.errors.append(SyntacticError{
+                        .message = msg,
+                        .node_type = "type_usage",
+                        .severity = .err,
+                    });
+                    return;
+                }
+            },
+            .struct_type => |name| {
+                if (!self.declared_structs.contains(name)) {
+                    const msg = try std.fmt.allocPrint(self.allocator, "Struct type '{s}' used before declaration", .{name});
+                    try self.errors.append(SyntacticError{
+                        .message = msg,
+                        .node_type = "type_usage",
+                        .severity = .err,
+                    });
+                    return;
+                }
+            },
+            .enum_type => |name| {
+                if (!self.declared_enums.contains(name)) {
+                    const msg = try std.fmt.allocPrint(self.allocator, "Enum type '{s}' used before declaration", .{name});
                     try self.errors.append(SyntacticError{
                         .message = msg,
                         .node_type = "type_usage",
@@ -495,10 +588,14 @@ pub const SyntacticAnalyzer = struct {
                 for (gen.args) |arg| {
                     try self.validate_type_usage(arg);
                 }
+                
+                // Validate trait bounds for generic types
+                try self.validate_trait_bounds(gen.name, gen.args);
             },
             .pointer => |ptr| try self.validate_type_usage(ptr.*),
             .reference => |ref| try self.validate_type_usage(ref.*),
             .array => |arr| try self.validate_type_usage(arr.element_type.*),
+            .nullable => |nullable| try self.validate_type_usage(nullable.*),
             else => {},
         }
     }
@@ -571,7 +668,7 @@ pub const SyntacticAnalyzer = struct {
             for (struct_def.fields) |field| {
                 if (std.mem.eql(u8, field.name, member_access.member)) {
                     // Check if field is private
-                    if (!field.is_public) {
+                    if (field.visibility == .private) {
                         const msg = try std.fmt.allocPrint(self.allocator, "Cannot access private field '{s}' of struct '{s}'", .{ field.name, object_type });
                         try self.errors.append(SyntacticError{
                             .message = msg,
@@ -845,12 +942,15 @@ pub const SyntacticAnalyzer = struct {
         switch (type_node) {
             .basic => |name| return name,
             .named => |name| return name,
+            .struct_type => |name| return name,
+            .enum_type => |name| return name,
             .pointer => return "pointer",
             .reference => return "reference",
             .array => return "array",
             .tuple => return "tuple",
             .function => return "function",
             .process => return "process",
+            .nullable => return "nullable",
             .generic => |gen| {
                 // For generic types like Option<str>, show the full type
                 if (gen.args.len > 0) {
@@ -879,6 +979,10 @@ pub const SyntacticAnalyzer = struct {
                     const enum_name = id[0..colon_pos];
                     return enum_name;
                 }
+                // Check if it's a function-level generic parameter
+                if (self.current_function_generics.contains(id)) {
+                    return id;
+                }
                 return self.variable_types.get(id);
             },
             .binary_op => |binop| {
@@ -895,6 +999,19 @@ pub const SyntacticAnalyzer = struct {
                 
                 // If one operand has a type, prefer that
                 return left_type orelse right_type;
+            },
+            .method_call => |method| {
+                // For method calls like handler.handle(data), try to infer the return type
+                // from the object's type and method name
+                const object_type = self.infer_expression_return_type(method.object.*);
+                if (object_type != null) {
+                    // If the object is a generic parameter, assume the method returns the same generic type
+                    // This handles cases like handler.handle(data) where handler is of type U
+                    if (self.current_function_generics.contains(object_type.?)) {
+                        return object_type;
+                    }
+                }
+                return object_type;
             },
             .function_call => |call| {
                 // Try to infer from function name (basic heuristic)
@@ -927,7 +1044,11 @@ pub const SyntacticAnalyzer = struct {
         const actual_type = self.infer_expression_return_type(return_expr) orelse "unknown";
         const expected_type_name = self.type_to_string(expected_return_type);
         
-        if (!std.mem.eql(u8, actual_type, expected_type_name)) {
+        // For generic types, check if the actual type is a valid generic parameter
+        const is_valid_generic = self.current_function_generics.contains(actual_type);
+        const is_expected_generic = self.current_function_generics.contains(expected_type_name);
+        
+        if (!std.mem.eql(u8, actual_type, expected_type_name) and !(is_valid_generic and is_expected_generic)) {
             const msg = try std.fmt.allocPrint(self.allocator, "Return type mismatch: expected '{s}', found '{s}'", .{ expected_type_name, actual_type });
             try self.errors.append(SyntacticError{
                 .message = msg,
@@ -1023,6 +1144,42 @@ pub const SyntacticAnalyzer = struct {
         return result.toOwnedSlice() catch "multiple types";
     }
     
+    fn validate_trait_bounds(self: *SyntacticAnalyzer, generic_name: []const u8, type_args: []AST.Type) !void {
+        // Check if this generic has trait bounds (e.g., Container<T: Printable>)
+        if (self.struct_generic_counts.get(generic_name)) |_| {
+            // This is a generic struct, check if it has trait bounds
+            for (type_args) |type_arg| {
+                const type_name = switch (type_arg) {
+                    .named => |name| name,
+                    .basic => |name| name,
+                    else => continue,
+                };
+                
+                // Check if this type implements required traits
+                // For now, check if Container requires Printable trait
+                if (std.mem.eql(u8, generic_name, "Container")) {
+                    if (self.trait_implementations.get(type_name)) |implemented_traits| {
+                        if (!implemented_traits.contains("Printable")) {
+                            const msg = try std.fmt.allocPrint(self.allocator, "Type '{s}' does not implement required trait 'Printable' for generic '{s}'", .{ type_name, generic_name });
+                            try self.errors.append(SyntacticError{
+                                .message = msg,
+                                .node_type = "trait_bound",
+                                .severity = .err,
+                            });
+                        }
+                    } else {
+                        const msg = try std.fmt.allocPrint(self.allocator, "Type '{s}' does not implement required trait 'Printable' for generic '{s}'", .{ type_name, generic_name });
+                        try self.errors.append(SyntacticError{
+                            .message = msg,
+                            .node_type = "trait_bound",
+                            .severity = .err,
+                        });
+                    }
+                }
+            }
+        }
+    }
+    
     fn validate_type_value_match(self: *SyntacticAnalyzer, expected_type: AST.Type, value: AST.Expression, var_name: []const u8) std.mem.Allocator.Error!void {
         const expected_type_name = self.get_type_name(expected_type);
         const actual_type_name = self.infer_value_type(value);
@@ -1044,6 +1201,8 @@ pub const SyntacticAnalyzer = struct {
         return switch (type_node) {
             .basic => |name| name,
             .named => |name| name,
+            .struct_type => |name| name,
+            .enum_type => |name| name,
             .generic => |gen| gen.name,
             else => "unknown",
         };
@@ -1094,6 +1253,35 @@ pub const SyntacticAnalyzer = struct {
         }
     }
     
+    fn validate_assignment(self: *SyntacticAnalyzer, left_expr: AST.Expression) std.mem.Allocator.Error!void {
+        switch (left_expr) {
+            .identifier => |id| {
+                // Debug: print what we're checking
+                std.debug.print("DEBUG: Checking assignment to identifier '{s}'\n", .{id});
+                
+                // Check if trying to assign to a reference variable
+                if (self.reference_variables.get(id)) |is_mutable| {
+                    std.debug.print("DEBUG: Found reference variable '{s}', is_mutable: {}\n", .{id, is_mutable});
+                    if (!is_mutable) {
+                        const msg = try std.fmt.allocPrint(self.allocator, "Cannot assign to immutable reference variable '{s}'. Use 'var mut' for mutable references", .{id});
+                        try self.errors.append(SyntacticError{
+                            .message = msg,
+                            .node_type = "assignment",
+                            .severity = .err,
+                        });
+                    }
+                } else {
+                    std.debug.print("DEBUG: '{s}' is not a reference variable\n", .{id});
+                }
+            },
+            else => {
+                std.debug.print("DEBUG: Assignment to non-identifier expression\n", .{});
+            },
+        }
+    }
+    
+
+    
     fn validate_generic_enum_usage(self: *SyntacticAnalyzer, enum_usage: []const u8) std.mem.Allocator.Error!void {
         // Parse EnumName<Type1, Type2>::Variant syntax
         const bracket_start = std.mem.indexOf(u8, enum_usage, "<") orelse return;
@@ -1143,8 +1331,15 @@ pub fn analyze_syntax(allocator: Allocator, program: AST.Program) ![]SyntacticEr
         }
     }
     
-    // Second pass: analyze usage (skip definitions since they're already registered)
-    for (program.items) |item| {
+    // Second pass: convert named types to specific struct/enum types in a new program
+    const converted_program = try convert_named_types_in_program(allocator, program, &analyzer);
+    defer allocator.free(converted_program.items);
+    
+    // Print the converted AST to a separate file to show the proper types
+    try print_converted_ast(allocator, converted_program);
+    
+    // Third pass: analyze usage with converted types
+    for (converted_program.items) |item| {
         switch (item) {
             .struct_def => {}, // Skip, already processed
             .enum_def => {}, // Skip, already processed
@@ -1154,4 +1349,48 @@ pub fn analyze_syntax(allocator: Allocator, program: AST.Program) ![]SyntacticEr
     }
     
     return analyzer.errors.toOwnedSlice();
+}
+
+fn print_converted_ast(allocator: Allocator, program: AST.Program) !void {
+    const print_ast = @import("../parser/parser.zig").print_ast;
+    try print_ast(allocator, program);
+}
+
+fn convert_named_types_in_program(allocator: Allocator, program: AST.Program, analyzer: *SyntacticAnalyzer) !AST.Program {
+    var converted_items = std.ArrayList(AST.ASTNode).init(allocator);
+    
+    for (program.items) |item| {
+        const converted_item = try convert_named_types_in_node(allocator, item, analyzer);
+        try converted_items.append(converted_item);
+    }
+    
+    return AST.Program{ .items = try converted_items.toOwnedSlice() };
+}
+
+fn convert_named_types_in_node(allocator: Allocator, node: AST.ASTNode, analyzer: *SyntacticAnalyzer) !AST.ASTNode {
+    switch (node) {
+        .declaration => |decl| {
+            var new_decl = decl;
+            if (decl.type_annotation) |type_ann| {
+                new_decl.type_annotation = try convert_named_type(allocator, type_ann, analyzer);
+            }
+            return AST.ASTNode{ .declaration = new_decl };
+        },
+        else => return node,
+    }
+}
+
+fn convert_named_type(allocator: Allocator, type_node: AST.Type, analyzer: *SyntacticAnalyzer) !AST.Type {
+    _ = allocator;
+    switch (type_node) {
+        .named => |name| {
+            if (analyzer.declared_structs.contains(name)) {
+                return AST.Type{ .struct_type = name };
+            } else if (analyzer.declared_enums.contains(name)) {
+                return AST.Type{ .enum_type = name };
+            }
+            return type_node;
+        },
+        else => return type_node,
+    }
 }

@@ -44,13 +44,19 @@ pub const Declaration = struct {
     initializer: ?Expression,
     fields: ?[]Field,
     attributes: ?[]MacroCall,
+    generic_params: ?[]GenericParam,
+};
+
+pub const Visibility = enum {
+    public,
+    private,
 };
 
 pub const Field = struct {
     name: []const u8,
     type_annotation: Type,
     initializer: ?Expression,
-    is_public: bool,
+    visibility: Visibility,
 };
 
 pub const ImplBlock = struct {
@@ -197,6 +203,8 @@ pub const Statement = union(enum) {
 pub const Type = union(enum) {
     basic: []const u8,
     named: []const u8,
+    struct_type: []const u8,
+    enum_type: []const u8,
     generic: GenericType,
     array: ArrayType,
     function: FunctionType,
@@ -204,6 +212,7 @@ pub const Type = union(enum) {
     pointer: *Type,
     reference: *Type,
     tuple: []Type,
+    nullable: *Type,
 };
 
 pub const GenericType = struct {
@@ -246,13 +255,12 @@ pub const GenericDef = struct {
     constraints: [][]const u8,
 };
 
-pub const TraitDef = struct {
+pub const GenericParam = struct {
     name: []const u8,
-    methods: []TraitMethod,
+    bound_by: [][]const u8,
 };
 
-pub const TraitMethod = struct {
+pub const TraitDef = struct {
     name: []const u8,
-    parameters: []Parameter,
-    return_type: ?Type,
+    methods: []FunctionDef,
 };

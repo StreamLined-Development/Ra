@@ -1,0 +1,14 @@
+fun print_it<T>(x: T) void where T must implement Printable {
+    x.print();
+}
+
+fun add_and_print<T>(x: T, y: T) T where T must implement Printable, Addable {
+    x.print();
+    y.print();
+    return x + y;
+}
+
+fun transform<T, U>(data: T, handler: U) U where T must implement Serializable; U must implement Handler {
+    let result = handler.handle(data);
+    return result;
+}

@@ -129,6 +129,18 @@ const Lexer = struct {
             return self.make_token(.kw_message, start_pos);
         } else if (std.mem.eql(u8, text, "impl")) {
             return self.make_token(.impl, start_pos);
+        } else if (std.mem.eql(u8, text, "implement")) {
+            return self.make_token(.kw_implement, start_pos);
+        } else if (std.mem.eql(u8, text, "must")) {
+            return self.make_token(.kw_must, start_pos);
+        } else if (std.mem.eql(u8, text, "where")) {
+            return self.make_token(.kw_where, start_pos);
+        } else if (std.mem.eql(u8, text, "try")) {
+            return self.make_token(.kw_try, start_pos);
+        } else if (std.mem.eql(u8, text, "ifNull")) {
+            return self.make_token(.kw_ifNull, start_pos);
+        } else if (std.mem.eql(u8, text, "ifErr")) {
+            return self.make_token(.kw_ifErr, start_pos);
         } else if (std.mem.eql(u8, text, "spawn")) {
             return self.make_token(.kw_spawn, start_pos);
         } else if (std.mem.eql(u8, text, "bool")) {
@@ -185,6 +197,8 @@ const Lexer = struct {
             return self.make_token(.kw_mut, start_pos);
         } else if (std.mem.eql(u8, text, "pub")) {
             return self.make_token(.kw_pub, start_pos);
+        } else if (std.mem.eql(u8, text, "priv")) {
+            return self.make_token(.kw_priv, start_pos);
         } else if (std.mem.eql(u8, text, "str8")) {
             return self.make_token(.kw_str, start_pos);
         } else if (std.mem.eql(u8, text, "strA")) {
@@ -411,6 +425,10 @@ const Lexer = struct {
                 }
                 // It's a standalone underscore
                 return self.make_token(.underscore, start_pos);
+            },
+            '?' => {
+                _ = self.advance();
+                return self.make_token(.question_mark, start_pos);
             },
 
             // Multi-character tokens
