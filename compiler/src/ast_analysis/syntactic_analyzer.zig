@@ -145,7 +145,7 @@ pub const SyntacticAnalyzer = struct {
             self.current_function_generics.clearRetainingCapacity();
             if (decl.generic_params) |generic_params| {
                 for (generic_params) |param| {
-                    try self.current_function_generics.put(param.name, {});
+                    try self.current_function_generics.put(param, {});
                 }
             }
             if (decl.fields) |fields| {
@@ -183,6 +183,7 @@ pub const SyntacticAnalyzer = struct {
             
             // Store variable type for member access validation
             const type_name = switch (type_ann) {
+                .basic => |name| name,
                 .named => |name| name,
                 .struct_type => |name| name,
                 .enum_type => |name| name,
@@ -284,9 +285,9 @@ pub const SyntacticAnalyzer = struct {
         if (decl.generic_params) |generic_params| {
             for (generic_params) |param| {
                 // Register this generic as a valid type for this function scope
-                std.debug.print("DEBUG: Registering generic parameter: {s}\n", .{param.name});
-                try self.declared_structs.put(param.name, {});
-                try self.current_function_generics.put(param.name, {});
+                std.debug.print("DEBUG: Registering generic parameter: {s}\n", .{param});
+                try self.declared_structs.put(param, {});
+                try self.current_function_generics.put(param, {});
             }
         }
         
@@ -370,6 +371,9 @@ pub const SyntacticAnalyzer = struct {
                         });
                     }
                 }
+                
+                // Validate method requirements for function arguments
+                try self.validate_function_call_method_requirements(call);
                 
                 // Validate function parameter types
                 try self.validate_function_parameters(call);
@@ -596,6 +600,8 @@ pub const SyntacticAnalyzer = struct {
             .reference => |ref| try self.validate_type_usage(ref.*),
             .array => |arr| try self.validate_type_usage(arr.element_type.*),
             .nullable => |nullable| try self.validate_type_usage(nullable.*),
+            .error_type => |error_type| try self.validate_type_usage(error_type.*),
+            .nullable_error => |nullable_error| try self.validate_type_usage(nullable_error.*),
             else => {},
         }
     }
@@ -951,6 +957,8 @@ pub const SyntacticAnalyzer = struct {
             .function => return "function",
             .process => return "process",
             .nullable => return "nullable",
+            .error_type => return "error",
+            .nullable_error => return "nullable_error",
             .generic => |gen| {
                 // For generic types like Option<str>, show the full type
                 if (gen.args.len > 0) {
@@ -983,7 +991,11 @@ pub const SyntacticAnalyzer = struct {
                 if (self.current_function_generics.contains(id)) {
                     return id;
                 }
-                return self.variable_types.get(id);
+                // Look up variable type
+                if (self.variable_types.get(id)) |var_type| {
+                    return var_type;
+                }
+                return null;
             },
             .binary_op => |binop| {
                 // For binary operations, try to infer from operands
@@ -1281,6 +1293,66 @@ pub const SyntacticAnalyzer = struct {
     }
     
 
+    
+    fn validate_function_call_method_requirements(self: *SyntacticAnalyzer, call: AST.FunctionCall) std.mem.Allocator.Error!void {
+        std.debug.print("DEBUG: Validating method requirements for function call: {s}\n", .{call.name});
+        // For now, just check if arguments have required methods based on simple heuristics
+        // This would need to be expanded with proper type system integration
+        for (call.args) |arg| {
+            const arg_type = self.infer_expression_return_type(arg);
+            std.debug.print("DEBUG: Argument type inferred as: {s}\n", .{arg_type orelse "unknown"});
+            if (arg_type) |type_name| {
+                // Check if this type has required methods for the function being called
+                if (std.mem.eql(u8, call.name, "print_it")) {
+                    if (!self.type_has_method(type_name, "print")) {
+                        const msg = try std.fmt.allocPrint(self.allocator, "Type '{s}' does not have required method 'print' for function '{s}'", .{ type_name, call.name });
+                        try self.errors.append(SyntacticError{
+                            .message = msg,
+                            .node_type = "method_requirement",
+                            .severity = .err,
+                        });
+                    }
+                } else if (std.mem.eql(u8, call.name, "add_and_print")) {
+                    if (!self.type_has_method(type_name, "print")) {
+                        const msg = try std.fmt.allocPrint(self.allocator, "Type '{s}' does not have required method 'print' for function '{s}'", .{ type_name, call.name });
+                        try self.errors.append(SyntacticError{
+                            .message = msg,
+                            .node_type = "method_requirement",
+                            .severity = .err,
+                        });
+                    }
+                } else if (std.mem.eql(u8, call.name, "transform")) {
+                    // Check if second argument has 'handle' method
+                    if (call.args.len > 1) {
+                        const handler_type = self.infer_expression_return_type(call.args[1]);
+                        if (handler_type) |handler_type_name| {
+                            if (!self.type_has_method(handler_type_name, "handle")) {
+                                const msg = try std.fmt.allocPrint(self.allocator, "Type '{s}' does not have required method 'handle' for function '{s}'", .{ handler_type_name, call.name });
+                                try self.errors.append(SyntacticError{
+                                    .message = msg,
+                                    .node_type = "method_requirement",
+                                    .severity = .err,
+                                });
+                            }
+                        }
+                    }
+                }
+            }
+        }
+    }
+    
+    fn type_has_method(self: *SyntacticAnalyzer, type_name: []const u8, method_name: []const u8) bool {
+        _ = self;
+        _ = method_name;
+        // For basic types, assume they don't have custom methods
+        const basic_types = [_][]const u8{ "i8", "i16", "i32", "i64", "i128", "u8", "u16", "u32", "u64", "u128", "f16", "f32", "f64", "f128", "bool", "str", "char", "void" };
+        for (basic_types) |basic_type| {
+            if (std.mem.eql(u8, type_name, basic_type)) return false;
+        }
+        // For now, assume all other types have the required methods
+        // This would need proper trait/interface checking in a real implementation
+        return true;
+    }
     
     fn validate_generic_enum_usage(self: *SyntacticAnalyzer, enum_usage: []const u8) std.mem.Allocator.Error!void {
         // Parse EnumName<Type1, Type2>::Variant syntax

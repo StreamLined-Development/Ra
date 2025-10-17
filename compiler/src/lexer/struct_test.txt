@@ -1,0 +1,12 @@
+struct Person {
+    name: str,
+    age: i8,
+    
+    fun change_name(new_name: str) {
+        self.name = new_name;
+    }
+    
+    fun get_age() i8 {
+        return self.age;
+    }
+} implement TypeName, PrintNPC;

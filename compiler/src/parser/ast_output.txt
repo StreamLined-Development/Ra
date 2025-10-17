@@ -1,98 +1,175 @@
 AST:
 Program {
-  [0] Declaration {
-    kind: fun_decl
-    name: "print_it"
-    is_mut: false
-    type: NamedType("void")
-    initializer: BlockExpression {
-      statements: [
-        [0] ExpressionStatement: MethodCall {
-            object: Identifier("x")
-            method: "print"
-            args: [
-            ]
-        }
-      ]
-  }
-    generics: [
-      [0] name = "T"
-      [1] trait_bound
-          [0] Printable
-    ]
-    parameters: [
-      [0] x: NamedType("T")
-    ]
+  [0] GenericDef {
+    name: "F"
+    constraints: ["f16", "f32", "f64", "f128"]
 }
-  [1] Declaration {
-    kind: fun_decl
-    name: "add_and_print"
-    is_mut: false
-    type: NamedType("T")
-    initializer: BlockExpression {
-      statements: [
-        [0] ExpressionStatement: MethodCall {
-            object: Identifier("x")
-            method: "print"
-            args: [
-            ]
-        }
-        [1] ExpressionStatement: MethodCall {
-            object: Identifier("y")
-            method: "print"
-            args: [
-            ]
-        }
-      ]
-      return: BinaryOp {
-        left: Identifier("x")
-        operator: "+"
-        right: Identifier("y")
-    }
-  }
-    generics: [
-      [0] name = "T"
-      [1] trait_bound
-          [0] Printable
-          [1] Addable
-    ]
-    parameters: [
-      [0] x: NamedType("T")
-      [1] y: NamedType("T")
-    ]
+  [1] GenericDef {
+    name: "I"
+    constraints: ["i8", "i16", "i32", "i64", "i128"]
 }
-  [2] Declaration {
+  [2] GenericDef {
+    name: "U"
+    constraints: ["u8", "u16", "u32", "u64", "u128"]
+}
+  [3] Declaration {
     kind: fun_decl
-    name: "transform"
+    name: "sign"
     is_mut: false
-    type: NamedType("U")
+    attributes: [
+      [0] @fum()
+    ]
+    type: BasicType("str")
     initializer: BlockExpression {
       statements: [
-        [0] Declaration {
-          kind: let_decl
-          name: "result"
-          initializer: MethodCall {
-              object: Identifier("handler")
-              method: "handle"
-              args: [
-                [0] Identifier("data")
-              ]
+        [0] ExpressionStatement: IfExpression {
+            condition: BinaryOp {
+              left: Identifier("x")
+              operator: ">"
+              right: Literal(int: 0)
           }
+            then: {
+              statements: [0]
+              return: <expression>
+            }
         }
       ]
-      return: Identifier("result")
   }
     generics: [
-      [0] name = "T"
-      [1] trait_bound
-          [0] Serializable
-      [2] name = "U"
-      [3] trait_bound
-          [0] Handler
+      [0] "F"
     ]
     parameters: [
-      [0] data: NamedType("T")
-      [1] handler: NamedType("U")
+      [0] x: NamedType("F")
+    ]
+}
+  [4] Declaration {
+    kind: fun_decl
+    name: "sign"
+    is_mut: false
+    attributes: [
+      [0] @fum()
+    ]
+    type: BasicType("str")
+    initializer: BlockExpression {
+      statements: [
+        [0] ExpressionStatement: IfExpression {
+            condition: BinaryOp {
+              left: Identifier("x")
+              operator: "<"
+              right: Literal(int: 0)
+          }
+            then: {
+              statements: [0]
+              return: <expression>
+            }
+        }
+      ]
+  }
+    generics: [
+      [0] "F"
+    ]
+    parameters: [
+      [0] x: NamedType("F")
+    ]
+}
+  [5] Declaration {
+    kind: fun_decl
+    name: "sign"
+    is_mut: false
+    attributes: [
+      [0] @fum()
+    ]
+    type: BasicType("str")
+    initializer: BlockExpression {
+      statements: [
+        [0] ExpressionStatement: IfExpression {
+            condition: BinaryOp {
+              left: Identifier("x")
+              operator: ">"
+              right: Literal(int: 0)
+          }
+            then: {
+              statements: [0]
+              return: <expression>
+            }
+        }
+      ]
+  }
+    generics: [
+      [0] "I"
+    ]
+    parameters: [
+      [0] x: NamedType("I")
+    ]
+}
+  [6] Declaration {
+    kind: fun_decl
+    name: "sign"
+    is_mut: false
+    attributes: [
+      [0] @fum()
+    ]
+    type: BasicType("str")
+    initializer: BlockExpression {
+      statements: [
+        [0] ExpressionStatement: IfExpression {
+            condition: BinaryOp {
+              left: Identifier("x")
+              operator: "<"
+              right: Literal(int: 0)
+          }
+            then: {
+              statements: [0]
+              return: <expression>
+            }
+        }
+      ]
+  }
+    generics: [
+      [0] "I"
+    ]
+    parameters: [
+      [0] x: NamedType("I")
+    ]
+}
+  [7] Declaration {
+    kind: fun_decl
+    name: "sign"
+    is_mut: false
+    attributes: [
+      [0] @fum()
+    ]
+    type: BasicType("str")
+    initializer: BlockExpression {
+      statements: [
+      ]
+      return: Literal(string: ""zero"")
+  }
+    generics: [
+      [0] "F"
+    ]
+    parameters: [
+      [0] 0.0: NamedType("F")
+    ]
+}
+  [8] Declaration {
+    kind: fun_decl
+    name: "sign"
+    is_mut: false
+    attributes: [
+      [0] @fum()
+    ]
+    type: BasicType("str")
+    initializer: BlockExpression {
+      statements: [
+      ]
+      return: Literal(string: ""zero"")
+  }
+    generics: [
+      [0] "I"
+    ]
+    parameters: [
+      [0] 0: NamedType("I")
     ]
 }
 }

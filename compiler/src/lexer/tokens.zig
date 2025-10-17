@@ -31,7 +31,8 @@ pub const TokenType = enum {
     kw_union,
     kw_enum,
     kw_struct,
-    kw_fun,
+    kw_func,
+    kw_fum,
     kw_trait,
     kw_const,
     kw_var,
@@ -69,8 +70,6 @@ pub const TokenType = enum {
     // keywords - random
     impl,
     kw_implement,
-    kw_must,
-    kw_where,
     kw_pub,
     kw_priv,
     kw_mut,

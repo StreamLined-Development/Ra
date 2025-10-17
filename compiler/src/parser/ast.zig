@@ -30,6 +30,8 @@ pub const StructDef = struct {
     name: []const u8,
     generic_params: ?[][]const u8,
     fields: []Field,
+    methods: ?[]FunctionDef,
+    implemented_traits: ?[][]const u8,
 };
 
 pub const Program = struct {
@@ -44,7 +46,7 @@ pub const Declaration = struct {
     initializer: ?Expression,
     fields: ?[]Field,
     attributes: ?[]MacroCall,
-    generic_params: ?[]GenericParam,
+    generic_params: ?[][]const u8,
 };
 
 pub const Visibility = enum {
@@ -106,6 +108,10 @@ pub const Expression = union(enum) {
     while_expr: WhileExpression,
     loop_expr: LoopExpression,
     macro_call: MacroCall,
+    if_err_expr: IfErrExpression,
+    if_null_expr: IfNullExpression,
+    if_err: IfErrExpression,
+    if_null: IfNullExpression,
 };
 
 pub const RangeExpression = struct {
@@ -115,7 +121,7 @@ pub const RangeExpression = struct {
 };
 
 pub const ForExpression = struct {
-    variable: []const u8,
+    variables: [][]const u8,
     iterable: *Expression,
     body: Block,
     is_inline: bool,
@@ -133,6 +139,16 @@ pub const LoopExpression = struct {
 pub const MacroCall = struct {
     name: []const u8,
     args: []Expression,
+};
+
+pub const IfErrExpression = struct {
+    expr: *Expression,
+    fallback: *Expression,
+};
+
+pub const IfNullExpression = struct {
+    expr: *Expression,
+    fallback: *Expression,
 };
 
 pub const Literal = union(enum) {
@@ -213,6 +229,8 @@ pub const Type = union(enum) {
     reference: *Type,
     tuple: []Type,
     nullable: *Type,
+    error_type: *Type,
+    nullable_error: *Type,
 };
 
 pub const GenericType = struct {
@@ -255,10 +273,7 @@ pub const GenericDef = struct {
     constraints: [][]const u8,
 };
 
-pub const GenericParam = struct {
-    name: []const u8,
-    bound_by: [][]const u8,
-};
+
 
 pub const TraitDef = struct {
     name: []const u8,

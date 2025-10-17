@@ -121,8 +121,10 @@ const Lexer = struct {
             return self.make_token(.kw_inline, start_pos);
         } else if (std.mem.eql(u8, text, "return")) {
             return self.make_token(.kw_return, start_pos);
-        } else if (std.mem.eql(u8, text, "fun")) {
-            return self.make_token(.kw_fun, start_pos);
+        } else if (std.mem.eql(u8, text, "func")) {
+            return self.make_token(.kw_func, start_pos);
+        } else if (std.mem.eql(u8, text, "fum")) {
+            return self.make_token(.kw_fum, start_pos);
         } else if (std.mem.eql(u8, text, "process")) {
             return self.make_token(.kw_process, start_pos);
         } else if (std.mem.eql(u8, text, "message")) {
@@ -131,10 +133,7 @@ const Lexer = struct {
             return self.make_token(.impl, start_pos);
         } else if (std.mem.eql(u8, text, "implement")) {
             return self.make_token(.kw_implement, start_pos);
-        } else if (std.mem.eql(u8, text, "must")) {
-            return self.make_token(.kw_must, start_pos);
-        } else if (std.mem.eql(u8, text, "where")) {
-            return self.make_token(.kw_where, start_pos);
+
         } else if (std.mem.eql(u8, text, "try")) {
             return self.make_token(.kw_try, start_pos);
         } else if (std.mem.eql(u8, text, "ifNull")) {

@@ -78,7 +78,7 @@ const Parser = struct {
                     };
                     try items.append(AST.ASTNode{ .expression = loop_expr });
                 },
-                .kw_var, .kw_let, .kw_const, .kw_process, .kw_func, .kw_fum, .at_sign => {
+                .kw_var, .kw_let, .kw_const, .kw_process, .kw_fun, .at_sign => {
                     const decl = self.parse_declaration() catch |err| {
                         std.debug.print("Declaration parse failed: {s} at token {d}\n", .{ @errorName(err), self.position });
                         if (self.position < self.tokens.len) {
@@ -186,10 +186,6 @@ const Parser = struct {
         const program = AST.Program{ .items = try items.toOwnedSlice() };
         self.validate_all_implementations(program) catch |err| {
             std.debug.print("Validation failed: {s}\n", .{@errorName(err)});
-        };
-        self.validate_fum_grouping(program) catch |err| {
-            std.debug.print("Fum grouping validation failed: {s}\n", .{@errorName(err)});
-            return err;
         };
         return program;
     }
@@ -351,18 +347,26 @@ const Parser = struct {
                     .generic_params = null,
                 };
             },
-            .kw_func => {
+            .kw_fun => {
                 var generic_params: ?[][]const u8 = null;
-                if (self.match(.double_colon) and self.match(.less)) {
+                if (self.match(.less)) {
                     var params = std.ArrayList([]const u8).init(self.allocator);
                     const param = try self.expect(.identifier);
-                    const param_text = param.text;
-
+                    var param_text = param.text;
+                    if (self.match(.colon)) {
+                        const trait_name = try self.expect(.identifier);
+                        const combined = try std.fmt.allocPrint(self.allocator, "{s}: {s}", .{ param.text, trait_name.text });
+                        param_text = combined;
+                    }
                     try params.append(param_text);
                     while (self.match(.comma)) {
                         const next_param = try self.expect(.identifier);
-                        const next_param_text = next_param.text;
-
+                        var next_param_text = next_param.text;
+                        if (self.match(.colon)) {
+                            const next_trait_name = try self.expect(.identifier);
+                            const next_combined = try std.fmt.allocPrint(self.allocator, "{s}: {s}", .{ next_param.text, next_trait_name.text });
+                            next_param_text = next_combined;
+                        }
                         try params.append(next_param_text);
                     }
                     _ = try self.expect(.greater);
@@ -409,10 +413,60 @@ const Parser = struct {
                 params.deinit();
                 var return_type: ?AST.Type = null;
                 if (self.current() != null and 
-                    self.current().?.type != .left_brace) {
+                    self.current().?.type != .left_brace and 
+                    self.current().?.type != .kw_where) {
                     return_type = try self.parse_type();
                 }
-
+                var trait_bounds = std.ArrayList([]const u8).init(self.allocator);
+                defer {
+                    for (trait_bounds.items) |bound| {
+                        self.allocator.free(bound);
+                    }
+                    trait_bounds.deinit();
+                }
+                if (self.current() != null and self.current().?.type == .kw_where) {
+                    _ = self.advance(); 
+                    while (self.current() != null and self.current().?.type != .left_brace) {
+                        if (self.current().?.type == .identifier) {
+                            const generic_name = self.advance().?.text;
+                            if (self.current() != null and self.current().?.type == .kw_must) {
+                                _ = self.advance(); 
+                                if (self.current() != null and self.current().?.type == .kw_implement) {
+                                    _ = self.advance(); 
+                                    while (self.current() != null and self.current().?.type == .identifier) {
+                                        const trait_name = self.advance().?.text;
+                                        const bound = try std.fmt.allocPrint(self.allocator, "{s}: {s}", .{ generic_name, trait_name });
+                                        try trait_bounds.append(bound);
+                                        if (self.match(.comma)) {
+                                            if (self.current() != null and self.current().?.type == .identifier) {
+                                                const saved_pos = self.position;
+                                                _ = self.advance(); 
+                                                if (self.current() != null and self.current().?.type == .kw_must) {
+                                                    self.position = saved_pos;
+                                                    break;
+                                                } else {
+                                                    self.position = saved_pos;
+                                                    continue;
+                                                }
+                                            } else {
+                                                continue;
+                                            }
+                                        } else {
+                                            break;
+                                        }
+                                    }
+                                    _ = self.match(.semicolon);
+                                } else {
+                                    return ParseError.UnexpectedToken;
+                                }
+                            } else {
+                                return ParseError.UnexpectedToken;
+                            }
+                        } else {
+                            break;
+                        }
+                    }
+                }
                 if (self.current() == null or self.current().?.type != .left_brace) {
                     self.allocator.free(owned_params);
                     return AST.Declaration{
@@ -488,9 +542,64 @@ const Parser = struct {
                     };
                 }
                 type_annotation = return_type;
-                var final_generic_params: ?[][]const u8 = null;
-                if (generic_params != null) {
-                    final_generic_params = generic_params;
+                var final_generic_params: ?[]AST.[]const u8 = null;
+                if (generic_params != null or trait_bounds.items.len > 0) {
+                    var generic_param_list = std.ArrayList(AST.[]const u8).init(self.allocator);
+                    if (generic_params) |gen_params| {
+                        for (gen_params) |gen_param| {
+                            if (std.mem.indexOf(u8, gen_param, ":")) |colon_pos| {
+                                const generic_name = gen_param[0..colon_pos];
+                                const trait_name = gen_param[colon_pos + 2..]; 
+                                const bounds = try self.allocator.alloc([]const u8, 1);
+                                bounds[0] = trait_name;
+                                try generic_param_list.append(AST.[]const u8{
+                                    .name = generic_name,
+                                    .bound_by = bounds,
+                                });
+                            } else {
+                                try generic_param_list.append(AST.[]const u8{
+                                    .name = gen_param,
+                                    .bound_by = &[_][]const u8{},
+                                });
+                            }
+                        }
+                        self.allocator.free(gen_params);
+                    }
+                    for (trait_bounds.items) |bound| {
+                        if (std.mem.indexOf(u8, bound, ":")) |colon_pos| {
+                            const generic_name = bound[0..colon_pos];
+                            const trait_name = bound[colon_pos + 2..]; 
+                            var found = false;
+                            for (generic_param_list.items) |*param| {
+                                if (std.mem.eql(u8, param.name, generic_name)) {
+                                    const old_bounds = param.bound_by;
+                                    const new_bounds = try self.allocator.alloc([]const u8, old_bounds.len + 1);
+                                    for (old_bounds, 0..) |old_bound, i| {
+                                        new_bounds[i] = old_bound;
+                                    }
+                                    new_bounds[old_bounds.len] = trait_name;
+                                    if (old_bounds.len > 0) {
+                                        self.allocator.free(old_bounds);
+                                    }
+                                    param.bound_by = new_bounds;
+                                    found = true;
+                                    break;
+                                }
+                            }
+                            if (!found) {
+                                const bounds = try self.allocator.alloc([]const u8, 1);
+                                bounds[0] = trait_name;
+                                try generic_param_list.append(AST.[]const u8{
+                                    .name = generic_name,
+                                    .bound_by = bounds,
+                                });
+                            }
+                        }
+                    }
+                    if (generic_param_list.items.len > 0) {
+                        final_generic_params = try generic_param_list.toOwnedSlice();
+                    }
+                    trait_bounds.clearRetainingCapacity();
                 }
                 self.allocator.free(owned_params);
                 return AST.Declaration{
@@ -502,102 +611,6 @@ const Parser = struct {
                     .fields = param_fields,
                     .attributes = if (attributes.items.len > 0) try attributes.toOwnedSlice() else null,
                     .generic_params = final_generic_params,
-                };
-            },
-            .kw_fum => {
-                try attributes.append(AST.MacroCall{
-                    .name = "fum",
-                    .args = &[_]AST.Expression{},
-                });
-                var generic_params: ?[][]const u8 = null;
-                if (self.match(.double_colon) and self.match(.less)) {
-                    var params = std.ArrayList([]const u8).init(self.allocator);
-                    const param = try self.expect(.identifier);
-                    try params.append(param.text);
-                    while (self.match(.comma)) {
-                        const next_param = try self.expect(.identifier);
-                        try params.append(next_param.text);
-                    }
-                    _ = try self.expect(.greater);
-                    generic_params = try params.toOwnedSlice();
-                }
-                _ = try self.expect(.left_paren);
-                var params = std.ArrayList(AST.Parameter).init(self.allocator);
-                if (self.current() != null and self.current().?.type != .right_paren) {
-                    while (true) {
-                        var param_name: []const u8 = undefined;
-                        const current_token = self.current() orelse return ParseError.UnexpectedEOF;
-                        if (current_token.type == .lit_int or current_token.type == .lit_float or current_token.type == .lit_str) {
-                            param_name = self.advance().?.text;
-                        } else {
-                            param_name = (try self.expect(.identifier)).text;
-                        }
-                        _ = try self.expect(.colon);
-                        const param_type = try self.parse_type();
-                        try params.append(AST.Parameter{
-                            .name = param_name,
-                            .param_type = param_type,
-                            .is_mut = false,
-                            .is_ref = false,
-                            .is_copy = false,
-                        });
-                        if (!self.match(.comma)) break;
-                    }
-                }
-                _ = try self.expect(.right_paren);
-                var return_type: ?AST.Type = null;
-                if (self.current() != null and self.current().?.type != .left_brace) {
-                    return_type = try self.parse_type();
-                }
-                _ = try self.expect(.left_brace);
-                var body_statements = std.ArrayList(AST.Statement).init(self.allocator);
-                var body_expr: ?AST.Expression = null;
-                while (self.current() != null and self.current().?.type != .right_brace) {
-                    if (self.current().?.type == .kw_return) {
-                        _ = self.advance();
-                        const return_expr = try self.parse_expression();
-                        _ = self.match(.semicolon);
-                        body_expr = return_expr;
-                        break;
-                    } else if (self.current().?.type == .kw_let or self.current().?.type == .kw_var) {
-                        const decl = try self.parse_declaration();
-                        try body_statements.append(AST.Statement{ .declaration = decl });
-                    } else {
-                        const stmt_expr = try self.parse_expression();
-                        _ = self.match(.semicolon);
-                        const stmt_ptr = try self.allocator.create(AST.Expression);
-                        stmt_ptr.* = stmt_expr;
-                        try body_statements.append(AST.Statement{ .expression = stmt_ptr });
-                    }
-                }
-                _ = try self.expect(.right_brace);
-                const block_expr = AST.Expression{ .block_expr = AST.Block{
-                    .statements = try body_statements.toOwnedSlice(),
-                    .expr = if (body_expr) |expr| blk: {
-                        const expr_ptr = try self.allocator.create(AST.Expression);
-                        expr_ptr.* = expr;
-                        break :blk expr_ptr;
-                    } else null,
-                }};
-                const param_fields = try self.allocator.alloc(AST.Field, params.items.len);
-                for (params.items, 0..) |param, i| {
-                    param_fields[i] = AST.Field{
-                        .name = param.name,
-                        .type_annotation = param.param_type,
-                        .initializer = null,
-                        .visibility = AST.Visibility.private,
-                    };
-                }
-                params.deinit();
-                return AST.Declaration{
-                    .kind = .fun_decl,
-                    .is_mut = is_mut,
-                    .name = name_token.text,
-                    .type_annotation = return_type,
-                    .initializer = block_expr,
-                    .fields = param_fields,
-                    .attributes = if (attributes.items.len > 0) try attributes.toOwnedSlice() else null,
-                    .generic_params = generic_params,
                 };
             },
             else => return ParseError.UnexpectedToken,
@@ -624,7 +637,7 @@ const Parser = struct {
             }
         }
         while (self.current()) |token| {
-            if (token.type == .plus or token.type == .minus or token.type == .multiply or token.type == .divide or token.type == .modulo or token.type == .power or token.type == .equal or token.type == .not_equal or token.type == .less or token.type == .greater or token.type == .less_equal or token.type == .greater_equal or token.type == .piping or token.type == .excl_range or token.type == .incl_range or token.type == .kw_ifErr or token.type == .kw_ifNull) {
+            if (token.type == .plus or token.type == .minus or token.type == .multiply or token.type == .divide or token.type == .modulo or token.type == .power or token.type == .equal or token.type == .not_equal or token.type == .less or token.type == .greater or token.type == .less_equal or token.type == .greater_equal or token.type == .piping or token.type == .excl_range or token.type == .incl_range) {
                 const op_token = self.advance().?;
                 const right = try self.parse_primary_expression();
                 if (op_token.type == .excl_range or op_token.type == .incl_range) {
@@ -636,24 +649,6 @@ const Parser = struct {
                         .start = left_ptr,
                         .end = right_ptr,
                         .inclusive = op_token.type == .incl_range, 
-                    }};
-                } else if (op_token.type == .kw_ifErr) {
-                    const left_ptr = try self.allocator.create(AST.Expression);
-                    const right_ptr = try self.allocator.create(AST.Expression);
-                    left_ptr.* = left;
-                    right_ptr.* = right;
-                    left = AST.Expression{ .if_err_expr = AST.IfErrExpression{
-                        .expr = left_ptr,
-                        .fallback = right_ptr,
-                    }};
-                } else if (op_token.type == .kw_ifNull) {
-                    const left_ptr = try self.allocator.create(AST.Expression);
-                    const right_ptr = try self.allocator.create(AST.Expression);
-                    left_ptr.* = left;
-                    right_ptr.* = right;
-                    left = AST.Expression{ .if_null_expr = AST.IfNullExpression{
-                        .expr = left_ptr,
-                        .fallback = right_ptr,
                     }};
                 } else {
                     const left_ptr = try self.allocator.create(AST.Expression);
@@ -698,19 +693,7 @@ const Parser = struct {
             },
             .kw_while => {
                 _ = self.advance(); 
-                _ = try self.expect(.left_paren);
                 const condition = try self.parse_expression();
-                _ = try self.expect(.right_paren);
-                
-                // Check for optional after-code block
-                var after_code: ?AST.Expression = null;
-                if (self.current() != null and self.current().?.type == .left_paren) {
-                    _ = self.advance();
-                    after_code = try self.parse_expression();
-                    _ = try self.expect(.right_paren);
-                }
-                
-                _ = try self.expect(.kw_loop);
                 _ = try self.expect(.left_brace);
                 var body_statements = std.ArrayList(AST.Statement).init(self.allocator);
                 var body_expr: ?*AST.Expression = null;
@@ -725,7 +708,7 @@ const Parser = struct {
                         }
                         _ = self.match(.semicolon);
                         break;
-                    } else if (self.current().?.type == .kw_let or self.current().?.type == .kw_var or self.current().?.type == .kw_func) {
+                    } else if (self.current().?.type == .kw_let or self.current().?.type == .kw_var or self.current().?.type == .kw_fun) {
                         const decl = try self.parse_declaration();
                         try body_statements.append(AST.Statement{ .declaration = decl });
                     } else {
@@ -749,23 +732,9 @@ const Parser = struct {
             },
             .kw_for => {
                 _ = self.advance(); 
-                _ = try self.expect(.left_paren);
-                
-                // Parse variable names (can be multiple for hashmaps)
-                var var_names = std.ArrayList([]const u8).init(self.allocator);
-                const first_var = try self.expect(.identifier);
-                try var_names.append(first_var.text);
-                
-                // Check for additional variables (key, value)
-                while (self.match(.comma)) {
-                    const next_var = try self.expect(.identifier);
-                    try var_names.append(next_var.text);
-                }
-                
+                const var_name = try self.expect(.identifier);
                 _ = try self.expect(.kw_in); 
                 const iterable = try self.parse_expression();
-                _ = try self.expect(.right_paren);
-                _ = try self.expect(.kw_loop);
                 _ = try self.expect(.left_brace);
                 var body_statements = std.ArrayList(AST.Statement).init(self.allocator);
                 var body_expr: ?*AST.Expression = null;
@@ -780,7 +749,7 @@ const Parser = struct {
                         }
                         _ = self.match(.semicolon);
                         break;
-                    } else if (self.current().?.type == .kw_let or self.current().?.type == .kw_var or self.current().?.type == .kw_func) {
+                    } else if (self.current().?.type == .kw_let or self.current().?.type == .kw_var or self.current().?.type == .kw_fun) {
                         const decl = try self.parse_declaration();
                         try body_statements.append(AST.Statement{ .declaration = decl });
                     } else {
@@ -794,9 +763,8 @@ const Parser = struct {
                 _ = try self.expect(.right_brace);
                 const iterable_ptr = try self.allocator.create(AST.Expression);
                 iterable_ptr.* = iterable;
-                
                 return AST.Expression{ .for_expr = AST.ForExpression{
-                    .variables = try var_names.toOwnedSlice(),
+                    .variable = var_name.text,
                     .iterable = iterable_ptr,
                     .body = AST.Block{
                         .statements = try body_statements.toOwnedSlice(),
@@ -821,7 +789,7 @@ const Parser = struct {
                         }
                         _ = self.match(.semicolon);
                         break;
-                    } else if (self.current().?.type == .kw_let or self.current().?.type == .kw_var or self.current().?.type == .kw_func) {
+                    } else if (self.current().?.type == .kw_let or self.current().?.type == .kw_var or self.current().?.type == .kw_fun) {
                         const decl = try self.parse_declaration();
                         try body_statements.append(AST.Statement{ .declaration = decl });
                     } else {
@@ -843,43 +811,27 @@ const Parser = struct {
             .kw_if => {
                 _ = self.advance();
                 const condition = try self.parse_expression();
-                var has_braces = false;
-                if (self.current() != null and self.current().?.type == .left_brace) {
-                    _ = self.advance();
-                    has_braces = true;
-                }
+                _ = try self.expect(.left_brace);
                 var then_statements = std.ArrayList(AST.Statement).init(self.allocator);
                 var then_expr: ?AST.Expression = null;
-                if (has_braces) {
-                    while (self.current() != null and self.current().?.type != .right_brace) {
-                        if (self.current().?.type == .kw_return) {
-                            _ = self.advance();
-                            then_expr = try self.parse_expression();
-                            _ = self.match(.semicolon);
-                            break;
-                        } else if (self.current().?.type == .kw_let or self.current().?.type == .kw_var) {
-                            const decl = try self.parse_declaration();
-                            try then_statements.append(AST.Statement{ .declaration = decl });
-                        } else {
-                            const stmt_expr = try self.parse_expression();
-                            _ = self.match(.semicolon);
-                            const stmt_ptr = try self.allocator.create(AST.Expression);
-                            stmt_ptr.* = stmt_expr;
-                            try then_statements.append(AST.Statement{ .expression = stmt_ptr });
-                        }
-                    }
-                    _ = try self.expect(.right_brace);
-                } else {
+                while (self.current() != null and self.current().?.type != .right_brace) {
                     if (self.current().?.type == .kw_return) {
                         _ = self.advance();
                         then_expr = try self.parse_expression();
+                        _ = self.match(.semicolon);
+                        break;
+                    } else if (self.current().?.type == .kw_let or self.current().?.type == .kw_var) {
+                        const decl = try self.parse_declaration();
+                        try then_statements.append(AST.Statement{ .declaration = decl });
                     } else {
                         const stmt_expr = try self.parse_expression();
+                        _ = self.match(.semicolon);
                         const stmt_ptr = try self.allocator.create(AST.Expression);
                         stmt_ptr.* = stmt_expr;
                         try then_statements.append(AST.Statement{ .expression = stmt_ptr });
                     }
                 }
+                _ = try self.expect(.right_brace);
                 const then_block = AST.Block{
                     .statements = try then_statements.toOwnedSlice(),
                     .expr = if (then_expr) |expr| blk: {
@@ -1084,22 +1036,9 @@ const Parser = struct {
                 if (self.current()) |next_token| {
                     if (next_token.type == .kw_for) {
                         _ = self.advance(); 
-                        _ = try self.expect(.left_paren);
-                        
-                        // Parse variable names
-                        var var_names = std.ArrayList([]const u8).init(self.allocator);
-                        const first_var = try self.expect(.identifier);
-                        try var_names.append(first_var.text);
-                        
-                        while (self.match(.comma)) {
-                            const next_var = try self.expect(.identifier);
-                            try var_names.append(next_var.text);
-                        }
-                        
+                        const var_name = try self.expect(.identifier);
                         _ = try self.expect(.kw_in);
                         const iterable = AST.Expression{ .identifier = (try self.expect(.identifier)).text };
-                        _ = try self.expect(.right_paren);
-                        _ = try self.expect(.kw_loop);
                         _ = try self.expect(.left_brace);
                         var body_statements = std.ArrayList(AST.Statement).init(self.allocator);
                         var body_expr: ?*AST.Expression = null;
@@ -1114,7 +1053,7 @@ const Parser = struct {
                                 }
                                 _ = self.match(.semicolon);
                                 break;
-                            } else if (self.current().?.type == .kw_let or self.current().?.type == .kw_var or self.current().?.type == .kw_func) {
+                            } else if (self.current().?.type == .kw_let or self.current().?.type == .kw_var or self.current().?.type == .kw_fun) {
                                 const decl = try self.parse_declaration();
                                 try body_statements.append(AST.Statement{ .declaration = decl });
                             } else {
@@ -1128,9 +1067,8 @@ const Parser = struct {
                         _ = try self.expect(.right_brace);
                         const iterable_ptr = try self.allocator.create(AST.Expression);
                         iterable_ptr.* = iterable;
-                        
                         return AST.Expression{ .for_expr = AST.ForExpression{
-                            .variables = try var_names.toOwnedSlice(),
+                            .variable = var_name.text,
                             .iterable = iterable_ptr,
                             .body = AST.Block{
                                 .statements = try body_statements.toOwnedSlice(),
@@ -1348,18 +1286,6 @@ const Parser = struct {
                 _ = try self.expect(.right_paren);
                 return AST.Expression{ .tuple_literal = try tuple_elements.toOwnedSlice() };
             },
-            .left_bracket => {
-                _ = self.advance();
-                var elements = std.ArrayList(AST.Expression).init(self.allocator);
-                if (self.current() != null and self.current().?.type != .right_bracket) {
-                    while (true) {
-                        try elements.append(try self.parse_expression());
-                        if (!self.match(.comma)) break;
-                    }
-                }
-                _ = try self.expect(.right_bracket);
-                return AST.Expression{ .literal = AST.Literal{ .array = try elements.toOwnedSlice() } };
-            },
             .left_brace => {
                 _ = self.advance();
                 if (self.current()) |current_token| {
@@ -1453,34 +1379,11 @@ const Parser = struct {
             .kw_string, .kw_stringA, .kw_string16, .kw_string32 => {
                 _ = self.advance();
                 const base_type = AST.Type{ .basic = token.text };
-                
-                var has_question = false;
-                var has_exclamation = false;
-                
-                while (true) {
-                    if (self.match(.question_mark) and !has_question) {
-                        has_question = true;
-                    } else if (self.match(.exclamation) and !has_exclamation) {
-                        has_exclamation = true;
-                    } else {
-                        break;
-                    }
-                }
-                
-                if (has_question and has_exclamation) {
-                    const inner_type = try self.allocator.create(AST.Type);
-                    inner_type.* = base_type;
-                    return AST.Type{ .nullable_error = inner_type };
-                } else if (has_question) {
+                if (self.match(.question_mark)) {
                     const nullable_type = try self.allocator.create(AST.Type);
                     nullable_type.* = base_type;
                     return AST.Type{ .nullable = nullable_type };
-                } else if (has_exclamation) {
-                    const error_type = try self.allocator.create(AST.Type);
-                    error_type.* = base_type;
-                    return AST.Type{ .error_type = error_type };
                 }
-                
                 return base_type;
             },
             .kw_array => {
@@ -1511,34 +1414,11 @@ const Parser = struct {
                 } else {
                     base_type = AST.Type{ .named = token.text };
                 }
-                
-                var has_question = false;
-                var has_exclamation = false;
-                
-                while (true) {
-                    if (self.match(.question_mark) and !has_question) {
-                        has_question = true;
-                    } else if (self.match(.exclamation) and !has_exclamation) {
-                        has_exclamation = true;
-                    } else {
-                        break;
-                    }
-                }
-                
-                if (has_question and has_exclamation) {
-                    const inner_type = try self.allocator.create(AST.Type);
-                    inner_type.* = base_type;
-                    return AST.Type{ .nullable_error = inner_type };
-                } else if (has_question) {
+                if (self.match(.question_mark)) {
                     const nullable_type = try self.allocator.create(AST.Type);
                     nullable_type.* = base_type;
                     return AST.Type{ .nullable = nullable_type };
-                } else if (has_exclamation) {
-                    const error_type = try self.allocator.create(AST.Type);
-                    error_type.* = base_type;
-                    return AST.Type{ .error_type = error_type };
                 }
-                
                 return base_type;
             },
             else => {
@@ -1555,7 +1435,7 @@ const Parser = struct {
         while (self.current() != null and self.current().?.type != .right_brace) {
             const token = self.current() orelse return ParseError.UnexpectedEOF;
             switch (token.type) {
-                .kw_func => {
+                .kw_fun => {
                     _ = self.advance();
                     const method_name = try self.expect(.identifier);
                     _ = try self.expect(.left_paren);
@@ -1696,47 +1576,6 @@ const Parser = struct {
             }
         }
     }
-    fn validate_fum_grouping(self: *Parser, program: AST.Program) ParseError!void {
-        var fum_positions = std.HashMap([]const u8, std.ArrayList(usize), std.hash_map.StringContext, std.hash_map.default_max_load_percentage).init(self.allocator);
-        defer {
-            var iterator = fum_positions.iterator();
-            while (iterator.next()) |entry| {
-                entry.value_ptr.deinit();
-            }
-            fum_positions.deinit();
-        }
-        
-        for (program.items, 0..) |item, i| {
-            if (item == .declaration and item.declaration.kind == .fun_decl) {
-                const decl = item.declaration;
-                if (decl.attributes) |attrs| {
-                    for (attrs) |attr| {
-                        if (std.mem.eql(u8, attr.name, "fum")) {
-                            const result = fum_positions.getOrPut(decl.name) catch return ParseError.OutOfMemory;
-                            if (!result.found_existing) {
-                                result.value_ptr.* = std.ArrayList(usize).init(self.allocator);
-                            }
-                            result.value_ptr.append(i) catch return ParseError.OutOfMemory;
-                            break;
-                        }
-                    }
-                }
-            }
-        }
-        
-        var iterator = fum_positions.iterator();
-        while (iterator.next()) |entry| {
-            const positions = entry.value_ptr.items;
-            if (positions.len > 1) {
-                for (positions[1..], 1..) |pos, idx| {
-                    if (pos != positions[idx - 1] + 1) {
-                        std.debug.print("Error: Fum functions with name '{s}' must be grouped together\n", .{entry.key_ptr.*});
-                        return ParseError.UnexpectedToken;
-                    }
-                }
-            }
-        }
-    }
     fn validate_trait_implementation(self: *Parser, impl_block: AST.ImplBlock) ParseError!void {
         if (impl_block.trait_name == null) return; 
         var trait_def: ?AST.TraitDef = null;
@@ -1780,13 +1619,21 @@ const Parser = struct {
         if (self.match(.less)) {
             var params = std.ArrayList([]const u8).init(self.allocator);
             const param = try self.expect(.identifier);
-            const param_text = param.text;
-
+            var param_text = param.text;
+            if (self.match(.colon)) {
+                const trait_name = try self.expect(.identifier);
+                const combined = try std.fmt.allocPrint(self.allocator, "{s}: {s}", .{ param.text, trait_name.text });
+                param_text = combined;
+            }
             try params.append(param_text);
             while (self.match(.comma)) {
                 const next_param = try self.expect(.identifier);
-                const next_param_text = next_param.text;
-
+                var next_param_text = next_param.text;
+                if (self.match(.colon)) {
+                    const next_trait_name = try self.expect(.identifier);
+                    const next_combined = try std.fmt.allocPrint(self.allocator, "{s}: {s}", .{ next_param.text, next_trait_name.text });
+                    next_param_text = next_combined;
+                }
                 try params.append(next_param_text);
             }
             _ = try self.expect(.greater);
@@ -1794,50 +1641,23 @@ const Parser = struct {
         }
         _ = try self.expect(.left_brace);
         var fields = std.ArrayList(AST.Field).init(self.allocator);
-        var methods = std.ArrayList(AST.FunctionDef).init(self.allocator);
-        
         while (!self.match(.right_brace)) {
-            if (self.current()) |token| {
-                if (token.type == .kw_func) {
-                    const method = try self.parse_function_def();
-                    try methods.append(method);
-                } else {
-                    const is_private = self.match(.kw_priv);
-                    const field_name = try self.expect(.identifier);
-                    _ = try self.expect(.colon);
-                    const field_type = try self.parse_type();
-                    _ = self.match(.comma);
-                    try fields.append(AST.Field{
-                        .name = field_name.text,
-                        .type_annotation = field_type,
-                        .initializer = null,
-                        .visibility = if (is_private) AST.Visibility.private else AST.Visibility.public,
-                    });
-                }
-            } else {
-                break;
-            }
+            const is_private = self.match(.kw_priv);
+            const field_name = try self.expect(.identifier);
+            _ = try self.expect(.colon);
+            const field_type = try self.parse_type();
+            _ = self.match(.comma);
+            try fields.append(AST.Field{
+                .name = field_name.text,
+                .type_annotation = field_type,
+                .initializer = null,
+                .visibility = if (is_private) AST.Visibility.private else AST.Visibility.public,
+            });
         }
-        
-        var implemented_traits: ?[][]const u8 = null;
-        if (self.match(.kw_implement)) {
-            var traits = std.ArrayList([]const u8).init(self.allocator);
-            const first_trait = try self.expect(.identifier);
-            try traits.append(first_trait.text);
-            
-            while (self.match(.comma)) {
-                const trait_name = try self.expect(.identifier);
-                try traits.append(trait_name.text);
-            }
-            implemented_traits = try traits.toOwnedSlice();
-        }
-        
         return AST.StructDef{
             .name = struct_name.text,
             .generic_params = generic_params,
             .fields = try fields.toOwnedSlice(),
-            .methods = if (methods.items.len > 0) try methods.toOwnedSlice() else null,
-            .implemented_traits = implemented_traits,
         };
     }
     fn parse_union(self: *Parser) ParseError!AST.EnumDef {
@@ -1989,7 +1809,7 @@ const Parser = struct {
         return try all_fields.toOwnedSlice();
     }
     fn parse_function_def(self: *Parser) ParseError!AST.FunctionDef {
-        _ = try self.expect(.kw_func);
+        _ = try self.expect(.kw_fun);
         const name_token = try self.expect(.identifier);
         if (self.match(.less)) {
             var depth: u32 = 1;
@@ -2084,6 +1904,11 @@ fn cleanup_ast_node(allocator: Allocator, node: AST.ASTNode) void {
                 allocator.free(fields);
             }
             if (decl.generic_params) |generic_params| {
+                for (generic_params) |param| {
+                    if (param.bound_by.len > 0) {
+                        allocator.free(param.bound_by);
+                    }
+                }
                 allocator.free(generic_params);
             }
             if (decl.attributes) |attrs| {
@@ -2110,20 +1935,6 @@ fn cleanup_ast_node(allocator: Allocator, node: AST.ASTNode) void {
                 cleanup_expression_if_exists(allocator, field.initializer);
             }
             allocator.free(struct_def.fields);
-            if (struct_def.methods) |methods| {
-                for (methods) |method| {
-                    for (method.parameters) |param| {
-                        cleanup_type(allocator, param.param_type);
-                    }
-                    allocator.free(method.parameters);
-                    cleanup_type(allocator, method.return_type);
-                    cleanup_block(allocator, method.body);
-                }
-                allocator.free(methods);
-            }
-            if (struct_def.implemented_traits) |traits| {
-                allocator.free(traits);
-            }
         },
         .trait_def => |trait_def| {
             for (trait_def.methods) |method| {
@@ -2201,14 +2012,6 @@ fn cleanup_type(allocator: Allocator, type_node: AST.Type) void {
             cleanup_type(allocator, nullable.*);
             allocator.destroy(nullable);
         },
-        .error_type => |error_type| {
-            cleanup_type(allocator, error_type.*);
-            allocator.destroy(error_type);
-        },
-        .nullable_error => |nullable_error| {
-            cleanup_type(allocator, nullable_error.*);
-            allocator.destroy(nullable_error);
-        },
         else => {},
     }
 }
@@ -2254,85 +2057,6 @@ fn cleanup_expression(allocator: Allocator, expr: AST.Expression) void {
                 },
                 else => {},
             }
-        },
-        .member_access => |member| {
-            cleanup_expression(allocator, member.object.*);
-            allocator.destroy(member.object);
-        },
-        .method_call => |method| {
-            cleanup_expression(allocator, method.object.*);
-            allocator.destroy(method.object);
-            for (method.args) |arg| {
-                cleanup_expression(allocator, arg);
-            }
-            allocator.free(method.args);
-        },
-        .tuple_literal => |elements| {
-            for (elements) |element| {
-                cleanup_expression(allocator, element);
-            }
-            allocator.free(elements);
-        },
-        .dereference => |deref| {
-            cleanup_expression(allocator, deref.*);
-            allocator.destroy(deref);
-        },
-        .if_err_expr => |if_err| {
-            cleanup_expression(allocator, if_err.expr.*);
-            cleanup_expression(allocator, if_err.fallback.*);
-            allocator.destroy(if_err.expr);
-            allocator.destroy(if_err.fallback);
-        },
-        .if_null_expr => |if_null| {
-            cleanup_expression(allocator, if_null.expr.*);
-            cleanup_expression(allocator, if_null.fallback.*);
-            allocator.destroy(if_null.expr);
-            allocator.destroy(if_null.fallback);
-        },
-        .range_expr => |range| {
-            cleanup_expression(allocator, range.start.*);
-            cleanup_expression(allocator, range.end.*);
-            allocator.destroy(range.start);
-            allocator.destroy(range.end);
-        },
-        .while_expr => |while_expr| {
-            cleanup_expression(allocator, while_expr.condition.*);
-            allocator.destroy(while_expr.condition);
-            cleanup_block(allocator, while_expr.body);
-        },
-        .for_expr => |for_expr| {
-            cleanup_expression(allocator, for_expr.iterable.*);
-            allocator.destroy(for_expr.iterable);
-            allocator.free(for_expr.variables);
-            cleanup_block(allocator, for_expr.body);
-        },
-        .loop_expr => |loop_expr| {
-            cleanup_block(allocator, loop_expr.body);
-        },
-        .if_expr => |if_expr| {
-            cleanup_expression(allocator, if_expr.condition.*);
-            allocator.destroy(if_expr.condition);
-            cleanup_block(allocator, if_expr.then_block);
-            if (if_expr.else_block) |else_block| {
-                cleanup_block(allocator, else_block);
-            }
-        },
-        .match_expr => |match_expr| {
-            cleanup_expression(allocator, match_expr.expr.*);
-            allocator.destroy(match_expr.expr);
-            for (match_expr.arms) |arm| {
-                cleanup_expression(allocator, arm.body.*);
-                allocator.destroy(arm.body);
-                switch (arm.pattern) {
-                    .enum_variant => |variant| {
-                        if (variant.params) |params| {
-                            allocator.free(params);
-                        }
-                    },
-                    else => {},
-                }
-            }
-            allocator.free(match_expr.arms);
         },
         else => {},
     }
@@ -2420,7 +2144,13 @@ fn print_ast_node(writer: anytype, node: AST.ASTNode, indent: usize) !void {
             if (decl.generic_params) |generic_params| {
                 try writer.print("{s}  generics: [\n", .{prefix});
                 for (generic_params, 0..) |param, i| {
-                    try writer.print("{s}    [{d}] \"{s}\"\n", .{ prefix, i, param });
+                    try writer.print("{s}    [{d}] name = \"{s}\"\n", .{ prefix, i * 2, param.name });
+                    if (param.bound_by.len > 0) {
+                        try writer.print("{s}    [{d}] trait_bound\n", .{ prefix, i * 2 + 1 });
+                        for (param.bound_by, 0..) |bound, j| {
+                            try writer.print("{s}        [{d}] {s}\n", .{ prefix, j, bound });
+                        }
+                    }
                 }
                 try writer.print("{s}  ]\n", .{prefix});
             }
@@ -2493,26 +2223,6 @@ fn print_ast_node(writer: anytype, node: AST.ASTNode, indent: usize) !void {
                 }
             }
             try writer.print("{s}  ]\n", .{prefix});
-            if (struct_def.methods) |methods| {
-                try writer.print("{s}  methods: [\n", .{prefix});
-                for (methods, 0..) |method, i| {
-                    try writer.print("{s}    [{d}] FunctionDef {{\n", .{ prefix, i });
-                    try writer.print("{s}      name: \"{s}\"\n", .{ prefix, method.name });
-                    try writer.print("{s}      parameters: [{d}]\n", .{ prefix, method.parameters.len });
-                    try writer.print("{s}      return_type: ", .{prefix});
-                    try print_type(writer, method.return_type, indent + 6);
-                    try writer.print("{s}    }}\n", .{prefix});
-                }
-                try writer.print("{s}  ]\n", .{prefix});
-            }
-            if (struct_def.implemented_traits) |traits| {
-                try writer.print("{s}  implemented_traits: [", .{prefix});
-                for (traits, 0..) |trait_name, i| {
-                    if (i > 0) try writer.print(", ", .{});
-                    try writer.print("\"{s}\"", .{trait_name});
-                }
-                try writer.print("]\n", .{});
-            }
             try writer.print("{s}}}\n", .{prefix[0..indent-2]});
         },
         .trait_def => |trait_def| {
@@ -2711,16 +2421,6 @@ fn print_type(writer: anytype, type_node: AST.Type, indent: usize) !void {
             try print_type_inline(writer, nullable.*);
             try writer.print(")\n", .{});
         },
-        .error_type => |error_type| {
-            try writer.print("ErrorType(", .{});
-            try print_type_inline(writer, error_type.*);
-            try writer.print(")\n", .{});
-        },
-        .nullable_error => |nullable_error| {
-            try writer.print("NullableErrorType(", .{});
-            try print_type_inline(writer, nullable_error.*);
-            try writer.print(")\n", .{});
-        },
     }
 }
 fn print_type_inline(writer: anytype, type_node: AST.Type) !void {
@@ -2791,14 +2491,6 @@ fn print_type_inline(writer: anytype, type_node: AST.Type) !void {
         .nullable => |nullable| {
             try print_type_inline(writer, nullable.*);
             try writer.print("?", .{});
-        },
-        .error_type => |error_type| {
-            try print_type_inline(writer, error_type.*);
-            try writer.print("!", .{});
-        },
-        .nullable_error => |nullable_error| {
-            try print_type_inline(writer, nullable_error.*);
-            try writer.print("?!", .{});
         },
     }
 }
@@ -3019,12 +2711,7 @@ fn print_expression(writer: anytype, expr: AST.Expression, indent: usize) !void 
         },
         .for_expr => |for_expr| {
             try writer.print("ForExpression {{\n", .{});
-            try writer.print("{s}  variables: [", .{prefix});
-            for (for_expr.variables, 0..) |var_name, i| {
-                if (i > 0) try writer.print(", ", .{});
-                try writer.print("\"{s}\"", .{var_name});
-            }
-            try writer.print("]\n", .{});
+            try writer.print("{s}  variable: \"{s}\"\n", .{ prefix, for_expr.variable });
             try writer.print("{s}  is_inline: {any}\n", .{ prefix, for_expr.is_inline });
             try writer.print("{s}  iterable: ", .{prefix});
             try print_expression(writer, for_expr.iterable.*, safe_indent + 2);

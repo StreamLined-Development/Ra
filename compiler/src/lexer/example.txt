@@ -1,14 +1,10 @@
-fun print_it<T>(x: T) void where T must implement Printable {
-    x.print();
-}
+generic F {f16, f32, f64, f128}
+generic I {i8, i16, i32, i64, i128}
+generic U {u8, u16, u32, u64, u128}
 
-fun add_and_print<T>(x: T, y: T) T where T must implement Printable, Addable {
-    x.print();
-    y.print();
-    return x + y;
-}
-
-fun transform<T, U>(data: T, handler: U) U where T must implement Serializable; U must implement Handler {
-    let result = handler.handle(data);
-    return result;
-}
+fum sign::<F>(x: F) str {if x > 0.0 return "positive"};
+fum sign::<F>(x: F) str {if x < 0.0 return "negative"};
+fum sign::<I>(x: I) str {if x > 0 return "positive"};
+fum sign::<I>(x: I) str {if x < 0 return "negative"};
+fum sign::<F>(0.0: F) str {return "zero"};
+fum sign::<I>(0: I) str {return "zero"};
