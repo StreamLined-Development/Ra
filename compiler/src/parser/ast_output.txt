@@ -1,175 +1,30 @@
 AST:
 Program {
-  [0] GenericDef {
-    name: "F"
-    constraints: ["f16", "f32", "f64", "f128"]
-}
-  [1] GenericDef {
-    name: "I"
-    constraints: ["i8", "i16", "i32", "i64", "i128"]
-}
-  [2] GenericDef {
-    name: "U"
-    constraints: ["u8", "u16", "u32", "u64", "u128"]
-}
-  [3] Declaration {
-    kind: fun_decl
-    name: "sign"
+  [0] Declaration {
+    kind: let_decl
+    name: "myNumbers"
     is_mut: false
-    attributes: [
-      [0] @fum()
-    ]
-    type: BasicType("str")
-    initializer: BlockExpression {
-      statements: [
-        [0] ExpressionStatement: IfExpression {
-            condition: BinaryOp {
-              left: Identifier("x")
-              operator: ">"
-              right: Literal(int: 0)
-          }
-            then: {
-              statements: [0]
-              return: <expression>
-            }
-        }
-      ]
-  }
-    generics: [
-      [0] "F"
-    ]
-    parameters: [
-      [0] x: NamedType("F")
-    ]
+    is_match: false
+    type: ArrayType(i16, size: 4)
+    initializer: ArrayLiteral([4]: [25, 50, 75, 100])
+    parameters: []
 }
-  [4] Declaration {
-    kind: fun_decl
-    name: "sign"
+  [1] Declaration {
+    kind: let_decl
+    name: "inferredArray"
     is_mut: false
-    attributes: [
-      [0] @fum()
-    ]
-    type: BasicType("str")
-    initializer: BlockExpression {
-      statements: [
-        [0] ExpressionStatement: IfExpression {
-            condition: BinaryOp {
-              left: Identifier("x")
-              operator: "<"
-              right: Literal(int: 0)
-          }
-            then: {
-              statements: [0]
-              return: <expression>
-            }
-        }
-      ]
-  }
-    generics: [
-      [0] "F"
-    ]
-    parameters: [
-      [0] x: NamedType("F")
-    ]
+    is_match: false
+    type: ArrayType(i32, size: inferred)
+    initializer: ArrayLiteral([5]: [1, 2, 3, 4, 5])
+    parameters: []
 }
-  [5] Declaration {
-    kind: fun_decl
-    name: "sign"
+  [2] Declaration {
+    kind: var_decl
+    name: "buffer"
     is_mut: false
-    attributes: [
-      [0] @fum()
-    ]
-    type: BasicType("str")
-    initializer: BlockExpression {
-      statements: [
-        [0] ExpressionStatement: IfExpression {
-            condition: BinaryOp {
-              left: Identifier("x")
-              operator: ">"
-              right: Literal(int: 0)
-          }
-            then: {
-              statements: [0]
-              return: <expression>
-            }
-        }
-      ]
-  }
-    generics: [
-      [0] "I"
-    ]
-    parameters: [
-      [0] x: NamedType("I")
-    ]
-}
-  [6] Declaration {
-    kind: fun_decl
-    name: "sign"
-    is_mut: false
-    attributes: [
-      [0] @fum()
-    ]
-    type: BasicType("str")
-    initializer: BlockExpression {
-      statements: [
-        [0] ExpressionStatement: IfExpression {
-            condition: BinaryOp {
-              left: Identifier("x")
-              operator: "<"
-              right: Literal(int: 0)
-          }
-            then: {
-              statements: [0]
-              return: <expression>
-            }
-        }
-      ]
-  }
-    generics: [
-      [0] "I"
-    ]
-    parameters: [
-      [0] x: NamedType("I")
-    ]
-}
-  [7] Declaration {
-    kind: fun_decl
-    name: "sign"
-    is_mut: false
-    attributes: [
-      [0] @fum()
-    ]
-    type: BasicType("str")
-    initializer: BlockExpression {
-      statements: [
-      ]
-      return: Literal(string: ""zero"")
-  }
-    generics: [
-      [0] "F"
-    ]
-    parameters: [
-      [0] 0.0: NamedType("F")
-    ]
-}
-  [8] Declaration {
-    kind: fun_decl
-    name: "sign"
-    is_mut: false
-    attributes: [
-      [0] @fum()
-    ]
-    type: BasicType("str")
-    initializer: BlockExpression {
-      statements: [
-      ]
-      return: Literal(string: ""zero"")
-  }
-    generics: [
-      [0] "I"
-    ]
-    parameters: [
-      [0] 0: NamedType("I")
-    ]
+    is_match: false
+    type: ArrayType(u8, size: 10)
+    initializer: null
+    parameters: []
 }
 }

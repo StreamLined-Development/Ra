@@ -31,13 +31,13 @@ pub fn build(b: *std.Build) void {
 
     const run_cmd = b.addRunArtifact(exe);
     const analyze_cmd = b.addRunArtifact(analyzer_exe);
-    
+
     // Make analyzer depend on parser completion
     analyze_cmd.step.dependOn(&run_cmd.step);
-    
+
     // Run step runs both parser and analyzer
     run_step.dependOn(&analyze_cmd.step);
-    
+
     // Analyze step runs only analyzer
     analyze_step.dependOn(&analyze_cmd.step);
 

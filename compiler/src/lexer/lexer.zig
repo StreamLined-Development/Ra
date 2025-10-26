@@ -123,6 +123,8 @@ const Lexer = struct {
             return self.make_token(.kw_return, start_pos);
         } else if (std.mem.eql(u8, text, "func")) {
             return self.make_token(.kw_func, start_pos);
+        } else if (std.mem.eql(u8, text, "fm")) {
+            return self.make_token(.kw_fm, start_pos);
         } else if (std.mem.eql(u8, text, "fum")) {
             return self.make_token(.kw_fum, start_pos);
         } else if (std.mem.eql(u8, text, "process")) {

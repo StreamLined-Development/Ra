@@ -118,6 +118,7 @@ pub const SyntacticAnalyzer = struct {
         
         // Check function declarations
         if (decl.kind == .fun_decl) {
+            std.debug.print("DEBUG: Registering function '{s}', is_match: {}\n", .{decl.name, decl.is_match});
             try self.validate_function_declaration(decl);
             
             // Track function generic parameter count
@@ -126,16 +127,27 @@ pub const SyntacticAnalyzer = struct {
             
             // Track function parameter types
             if (decl.fields) |fields| {
-                var param_types = std.ArrayList(AST.Type).init(self.allocator);
-                for (fields) |field| {
-                    try param_types.append(field.type_annotation);
+                // Free existing entry if it exists
+                if (self.function_signatures.get(decl.name)) |existing| {
+                    self.allocator.free(existing);
                 }
-                try self.function_signatures.put(decl.name, try param_types.toOwnedSlice());
+                
+                const param_types = try self.allocator.alloc(AST.Type, fields.len);
+                for (fields, 0..) |field, i| {
+                    param_types[i] = field.type_annotation;
+                }
+                try self.function_signatures.put(decl.name, param_types);
+                std.debug.print("DEBUG: Registered function signature for '{s}' with {d} parameters\n", .{decl.name, fields.len});
+            } else {
+                std.debug.print("DEBUG: Function '{s}' has no parameters\n", .{decl.name});
             }
             
             // Validate return type if present
             if (decl.type_annotation) |return_type| {
                 try self.validate_type_usage(return_type);
+                std.debug.print("DEBUG: Function '{s}' has explicit return type: {s}\n", .{decl.name, self.type_to_string(return_type)});
+            } else {
+                std.debug.print("DEBUG: Function '{s}' has no explicit return type\n", .{decl.name});
             }
             
             // Set current function return type for return statement validation
@@ -974,7 +986,15 @@ pub const SyntacticAnalyzer = struct {
         switch (expr) {
             .literal => |lit| {
                 switch (lit) {
-                    .number => return "i32", // Default integer type for literals
+                    .number => |num| {
+                        // Check if it's a whole number
+                        const floor_val = @floor(num);
+                        if (@abs(num - floor_val) < 0.0001) {
+                            return "i32";
+                        } else {
+                            return "f32";
+                        }
+                    },
                     .string => return "str",
                     .boolean => return "bool",
                     .char => return "char",
@@ -993,23 +1013,49 @@ pub const SyntacticAnalyzer = struct {
                 }
                 // Look up variable type
                 if (self.variable_types.get(id)) |var_type| {
-                    return var_type;
-                }
-                return null;
-            },
-            .binary_op => |binop| {
-                // For binary operations, try to infer from operands
-                const left_type = self.infer_expression_return_type(binop.left.*);
-                const right_type = self.infer_expression_return_type(binop.right.*);
-                
-                // If both operands have the same type, return that type
-                if (left_type != null and right_type != null) {
-                    if (std.mem.eql(u8, left_type.?, right_type.?)) {
-                        return left_type;
+                    if (!std.mem.eql(u8, var_type, "unknown")) {
+                        return var_type;
                     }
                 }
+                return "i32"; // Default for unknown identifiers
+            },
+            .binary_op => |binop| {
+                // For arithmetic operations, return operand type
+                if (std.mem.eql(u8, binop.operator, "+") or 
+                    std.mem.eql(u8, binop.operator, "-") or 
+                    std.mem.eql(u8, binop.operator, "*") or 
+                    std.mem.eql(u8, binop.operator, "/")) {
+                    
+                    const left_type = self.infer_expression_return_type(binop.left.*);
+                    const right_type = self.infer_expression_return_type(binop.right.*);
+                    
+                    // Return the first non-null type, preferring left
+                    if (left_type) |ltype| {
+                        if (!std.mem.eql(u8, ltype, "unknown")) {
+                            return ltype;
+                        }
+                    }
+                    if (right_type) |rtype| {
+                        if (!std.mem.eql(u8, rtype, "unknown")) {
+                            return rtype;
+                        }
+                    }
+                    return left_type orelse right_type;
+                }
                 
-                // If one operand has a type, prefer that
+                // For comparison operations, return bool
+                if (std.mem.eql(u8, binop.operator, "==") or 
+                    std.mem.eql(u8, binop.operator, "!=") or 
+                    std.mem.eql(u8, binop.operator, "<") or 
+                    std.mem.eql(u8, binop.operator, ">") or 
+                    std.mem.eql(u8, binop.operator, "<=") or 
+                    std.mem.eql(u8, binop.operator, ">=")) {
+                    return "bool";
+                }
+                
+                // For other operations, try to infer from operands
+                const left_type = self.infer_expression_return_type(binop.left.*);
+                const right_type = self.infer_expression_return_type(binop.right.*);
                 return left_type orelse right_type;
             },
             .method_call => |method| {
@@ -1221,13 +1267,64 @@ pub const SyntacticAnalyzer = struct {
     }
     
     fn infer_value_type(self: *SyntacticAnalyzer, expr: AST.Expression) ?[]const u8 {
-        _ = self;
         return switch (expr) {
             .literal => |lit| switch (lit) {
-                .number => "i32",
+                .number => |num| {
+                    const floor_val = @floor(num);
+                    if (@abs(num - floor_val) < 0.0001) {
+                        return "i32";
+                    } else {
+                        return "f32";
+                    }
+                },
                 .string => "str",
                 .boolean => "bool",
                 else => null,
+            },
+            .binary_op => |binop| {
+                // For arithmetic operations, return operand type
+                if (std.mem.eql(u8, binop.operator, "+") or 
+                    std.mem.eql(u8, binop.operator, "-") or 
+                    std.mem.eql(u8, binop.operator, "*") or 
+                    std.mem.eql(u8, binop.operator, "/")) {
+                    
+                    const left_type = self.infer_value_type(binop.left.*);
+                    const right_type = self.infer_value_type(binop.right.*);
+                    
+                    // Return the first non-null and non-unknown type
+                    if (left_type) |ltype| {
+                        if (!std.mem.eql(u8, ltype, "unknown")) {
+                            return ltype;
+                        }
+                    }
+                    if (right_type) |rtype| {
+                        if (!std.mem.eql(u8, rtype, "unknown")) {
+                            return rtype;
+                        }
+                    }
+                    return left_type orelse right_type;
+                }
+                
+                // For comparison operations, return bool
+                if (std.mem.eql(u8, binop.operator, "==") or 
+                    std.mem.eql(u8, binop.operator, "!=") or 
+                    std.mem.eql(u8, binop.operator, "<") or 
+                    std.mem.eql(u8, binop.operator, ">") or 
+                    std.mem.eql(u8, binop.operator, "<=") or 
+                    std.mem.eql(u8, binop.operator, ">=")) {
+                    return "bool";
+                }
+                
+                return null;
+            },
+            .identifier => |id| {
+                const var_type = self.variable_types.get(id);
+                if (var_type) |vtype| {
+                    if (!std.mem.eql(u8, vtype, "unknown")) {
+                        return vtype;
+                    }
+                }
+                return "i32"; // Default for unknown identifiers
             },
             else => null,
         };

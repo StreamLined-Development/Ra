@@ -41,6 +41,7 @@ pub const Program = struct {
 pub const Declaration = struct {
     kind: enum { var_decl, let_decl, const_decl, process_decl, fun_decl, struct_decl, typealias_decl },
     is_mut: bool,
+    is_match: bool,
     name: []const u8,
     type_annotation: ?Type,
     initializer: ?Expression,
@@ -79,6 +80,7 @@ pub const FunctionDef = struct {
     parameters: []Parameter,
     return_type: Type,
     body: Block,
+    match: bool,
 };
 
 pub const Parameter = struct {

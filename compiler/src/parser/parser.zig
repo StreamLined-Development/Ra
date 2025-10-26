@@ -78,7 +78,7 @@ const Parser = struct {
                     };
                     try items.append(AST.ASTNode{ .expression = loop_expr });
                 },
-                .kw_var, .kw_let, .kw_const, .kw_process, .kw_func, .kw_fum, .at_sign => {
+                .kw_var, .kw_let, .kw_const, .kw_process, .kw_func, .kw_fm, .kw_fum, .at_sign => {
                     const decl = self.parse_declaration() catch |err| {
                         std.debug.print("Declaration parse failed: {s} at token {d}\n", .{ @errorName(err), self.position });
                         if (self.position < self.tokens.len) {
@@ -211,6 +211,95 @@ const Parser = struct {
             _ = self.advance();
         }
     }
+    fn infer_type_from_expression_with_params(self: *Parser, expr: AST.Expression, params: []AST.Parameter) ?AST.Type {
+        switch (expr) {
+            .binary_op => |binop| {
+                const left_type = self.infer_type_from_expression_with_params(binop.left.*, params);
+                const right_type = self.infer_type_from_expression_with_params(binop.right.*, params);
+                
+                // For arithmetic operations, return the operand type
+                if (std.mem.eql(u8, binop.operator, "+") or 
+                    std.mem.eql(u8, binop.operator, "-") or 
+                    std.mem.eql(u8, binop.operator, "*") or 
+                    std.mem.eql(u8, binop.operator, "/")) {
+                    
+                    // Return the first non-null type, preferring left
+                    if (left_type) |ltype| {
+                        return ltype;
+                    }
+                    if (right_type) |rtype| {
+                        return rtype;
+                    }
+                    return AST.Type{ .basic = "i32" }; // Default fallback
+                }
+                
+                // For comparison operations, result is bool
+                if (std.mem.eql(u8, binop.operator, "==") or 
+                    std.mem.eql(u8, binop.operator, "!=") or 
+                    std.mem.eql(u8, binop.operator, "<") or 
+                    std.mem.eql(u8, binop.operator, ">") or 
+                    std.mem.eql(u8, binop.operator, "<=") or 
+                    std.mem.eql(u8, binop.operator, ">=")) {
+                    return AST.Type{ .basic = "bool" };
+                }
+                
+                return left_type orelse right_type;
+            },
+            .literal => |lit| {
+                switch (lit) {
+                    .number => |num| {
+                        // Check if it's a whole number
+                        const floor_val = @floor(num);
+                        if (@abs(num - floor_val) < 0.0001) {
+                            return AST.Type{ .basic = "i32" };
+                        } else {
+                            return AST.Type{ .basic = "f32" };
+                        }
+                    },
+                    .string => return AST.Type{ .basic = "str" },
+                    .boolean => return AST.Type{ .basic = "bool" },
+                    else => return null,
+                }
+            },
+            .identifier => |id| {
+                // Look up parameter type
+                for (params) |param| {
+                    if (std.mem.eql(u8, param.name, id)) {
+                        return param.param_type;
+                    }
+                }
+                // Default to i32 for unknown identifiers (could be improved with symbol table)
+                return AST.Type{ .basic = "i32" };
+            },
+            else => return null,
+        }
+    }
+    
+    fn infer_type_from_expression(self: *Parser, expr: AST.Expression) ?AST.Type {
+        return self.infer_type_from_expression_with_params(expr, &[_]AST.Parameter{});
+    }
+    
+    fn types_equal(self: *Parser, type1: AST.Type, type2: AST.Type) bool {
+        _ = self;
+        switch (type1) {
+            .basic => |name1| {
+                switch (type2) {
+                    .basic => |name2| return std.mem.eql(u8, name1, name2),
+                    else => return false,
+                }
+            },
+            .named => |name1| {
+                switch (type2) {
+                    .named => |name2| return std.mem.eql(u8, name1, name2),
+                    else => return false,
+                }
+            },
+            else => return false, // For now, only handle basic types
+        }
+    }
+    
+
+    
     fn parse_declaration(self: *Parser) ParseError!AST.Declaration {
         var attributes = std.ArrayList(AST.MacroCall).init(self.allocator);
         while (self.current() != null and self.current().?.type == .at_sign) {
@@ -233,6 +322,9 @@ const Parser = struct {
         const kind_token = self.advance().?;
         const is_mut = self.match(.kw_mut);
         const has_pointer_prefix = self.match(.caret);
+        
+
+        
         const name_token = try self.expect(.identifier);
         const pointer_in_name = has_pointer_prefix;
         var array_size: ?AST.Expression = null;
@@ -291,6 +383,7 @@ const Parser = struct {
             .kw_var => AST.Declaration{
                 .kind = .var_decl,
                 .is_mut = is_mut,
+                .is_match = false,
                 .name = name_token.text,
                 .type_annotation = type_annotation,
                 .initializer = initializer,
@@ -301,6 +394,7 @@ const Parser = struct {
             .kw_let => AST.Declaration{
                 .kind = .let_decl,
                 .is_mut = is_mut,
+                .is_match = false,
                 .name = name_token.text,
                 .type_annotation = type_annotation,
                 .initializer = initializer,
@@ -311,6 +405,7 @@ const Parser = struct {
             .kw_const => AST.Declaration{
                 .kind = .const_decl,
                 .is_mut = is_mut,
+                .is_match = false,
                 .name = name_token.text,
                 .type_annotation = type_annotation,
                 .initializer = initializer,
@@ -343,6 +438,7 @@ const Parser = struct {
                 return AST.Declaration{
                     .kind = .process_decl,
                     .is_mut = is_mut,
+                    .is_match = false,
                     .name = name_token.text,
                     .type_annotation = type_annotation,
                     .initializer = initializer,
@@ -351,7 +447,193 @@ const Parser = struct {
                     .generic_params = null,
                 };
             },
+            .kw_fm => {
+                // fm is equivalent to func match
+                const is_match_func = true;
+                
+                var generic_params: ?[][]const u8 = null;
+                if (self.match(.double_colon) and self.match(.less)) {
+                    var params = std.ArrayList([]const u8).init(self.allocator);
+                    const param = try self.expect(.identifier);
+                    const param_text = param.text;
+
+                    try params.append(param_text);
+                    while (self.match(.comma)) {
+                        const next_param = try self.expect(.identifier);
+                        const next_param_text = next_param.text;
+
+                        try params.append(next_param_text);
+                    }
+                    _ = try self.expect(.greater);
+                    generic_params = try params.toOwnedSlice();
+                }
+                _ = try self.expect(.left_paren);
+                var params = std.ArrayList(AST.Parameter).init(self.allocator);
+                if (self.current() != null and self.current().?.type != .right_paren) {
+                    while (true) {
+                        const param_is_mut = self.match(.kw_mut);
+                        
+                        // Allow direct values (literals) as parameters
+                        var param_name: []const u8 = undefined;
+                        const current_token = self.current() orelse return ParseError.UnexpectedEOF;
+                        if (current_token.type == .lit_int or current_token.type == .lit_float or current_token.type == .lit_str) {
+                            param_name = self.advance().?.text;
+                        } else {
+                            param_name = (try self.expect(.identifier)).text;
+                        }
+                        _ = try self.expect(.colon);
+                        var param_is_copy = false;
+                        var param_is_ref = false;
+                        var param_is_ptr = false;
+                        if (self.match(.hash)) {
+                            param_is_copy = true;
+                        }
+                        if (self.match(.ampersand)) {
+                            param_is_ref = true;
+                        }
+                        if (self.match(.caret)) {
+                            param_is_ptr = true;
+                        }
+                        const param_type = try self.parse_type();
+                        var final_type = param_type;
+                        if (param_is_ptr) {
+                            const ptr_type = try self.allocator.create(AST.Type);
+                            ptr_type.* = param_type;
+                            final_type = AST.Type{ .pointer = ptr_type };
+                        }
+                        try params.append(AST.Parameter{
+                            .name = param_name,
+                            .param_type = final_type,
+                            .is_mut = param_is_mut,
+                            .is_ref = param_is_ref,
+                            .is_copy = param_is_copy,
+                        });
+                        if (!self.match(.comma)) break;
+                    }
+                }
+                _ = try self.expect(.right_paren);
+                const owned_params = try params.toOwnedSlice();
+                params.deinit();
+                var return_type: ?AST.Type = null;
+                if (self.current() != null and 
+                    self.current().?.type != .left_brace) {
+                    return_type = try self.parse_type();
+                }
+
+                if (self.current() == null or self.current().?.type != .left_brace) {
+                    self.allocator.free(owned_params);
+                    return AST.Declaration{
+                        .kind = .fun_decl,
+                        .is_mut = is_mut,
+                        .is_match = true,
+                        .name = name_token.text,
+                        .type_annotation = return_type,
+                        .initializer = null,
+                        .fields = try self.convert_params_to_fields(&[_]AST.Parameter{}, null),
+                        .attributes = if (attributes.items.len > 0) try attributes.toOwnedSlice() else null,
+                        .generic_params = null,
+                    };
+                }
+                _ = self.expect(.left_brace) catch |err| {
+                    self.allocator.free(owned_params);
+                    return err;
+                };
+                var body_statements = std.ArrayList(AST.Statement).init(self.allocator);
+                var body_expr: ?AST.Expression = null;
+                while (self.current() != null and self.current().?.type != .right_brace) {
+                    if (self.current().?.type == .kw_return) {
+                        _ = self.advance(); 
+                        const return_expr = try self.parse_expression();
+                        _ = self.match(.semicolon);
+                        
+                        if (return_type == null) {
+                            return_type = self.infer_type_from_expression_with_params(return_expr, owned_params);
+                        }
+                        
+                        body_expr = return_expr;
+                        break;
+                    } else if (self.current().?.type == .kw_let or self.current().?.type == .kw_var) {
+                        const decl = try self.parse_declaration();
+                        try body_statements.append(AST.Statement{ .declaration = decl });
+                    } else {
+                        const stmt_expr = try self.parse_expression();
+                        _ = self.match(.semicolon);
+                        const stmt_ptr = try self.allocator.create(AST.Expression);
+                        stmt_ptr.* = stmt_expr;
+                        try body_statements.append(AST.Statement{ .expression = stmt_ptr });
+                    }
+                }
+                _ = try self.expect(.right_brace);
+                if (body_statements.items.len > 0 or body_expr != null) {
+                    const block_expr = AST.Expression{ .block_expr = AST.Block{
+                        .statements = try body_statements.toOwnedSlice(),
+                        .expr = if (body_expr) |expr| blk: {
+                            const expr_ptr = try self.allocator.create(AST.Expression);
+                            expr_ptr.* = expr;
+                            break :blk expr_ptr;
+                        } else null,
+                    }};
+                    body_expr = block_expr;
+                }
+                const param_fields = try self.allocator.alloc(AST.Field, owned_params.len);
+                for (owned_params, 0..) |param, i| {
+                    var modifier_expr: ?AST.Expression = null;
+                    if (param.is_mut and param.is_ref and param.is_copy) {
+                        modifier_expr = AST.Expression{ .identifier = "mut_ref_copy" };
+                    } else if (param.is_mut and param.is_ref) {
+                        modifier_expr = AST.Expression{ .identifier = "mut_ref" };
+                    } else if (param.is_mut and param.is_copy) {
+                        modifier_expr = AST.Expression{ .identifier = "mut_copy" };
+                    } else if (param.is_ref and param.is_copy) {
+                        modifier_expr = AST.Expression{ .identifier = "ref_copy" };
+                    } else if (param.is_mut) {
+                        modifier_expr = AST.Expression{ .identifier = "mut" };
+                    } else if (param.is_ref) {
+                        modifier_expr = AST.Expression{ .identifier = "ref" };
+                    } else if (param.is_copy) {
+                        modifier_expr = AST.Expression{ .identifier = "copy" };
+                    }
+                    param_fields[i] = AST.Field{
+                        .name = param.name,
+                        .type_annotation = param.param_type,
+                        .initializer = modifier_expr,
+                        .visibility = AST.Visibility.private,
+                    };
+                }
+                if (return_type == null and body_expr != null) {
+                    switch (body_expr.?) {
+                        .block_expr => |block| {
+                            if (block.expr) |expr| {
+                                return_type = self.infer_type_from_expression_with_params(expr.*, owned_params);
+                            }
+                        },
+                        else => {
+                            return_type = self.infer_type_from_expression_with_params(body_expr.?, owned_params);
+                        },
+                    }
+                }
+                
+                type_annotation = return_type;
+                var final_generic_params: ?[][]const u8 = null;
+                if (generic_params != null) {
+                    final_generic_params = generic_params;
+                }
+                self.allocator.free(owned_params);
+                return AST.Declaration{
+                    .kind = .fun_decl,
+                    .is_mut = is_mut,
+                    .is_match = is_match_func,
+                    .name = name_token.text,
+                    .type_annotation = type_annotation,
+                    .initializer = body_expr,
+                    .fields = param_fields,
+                    .attributes = if (attributes.items.len > 0) try attributes.toOwnedSlice() else null,
+                    .generic_params = final_generic_params,
+                };
+            },
             .kw_func => {
+                const is_match_func = false;
+                
                 var generic_params: ?[][]const u8 = null;
                 if (self.match(.double_colon) and self.match(.less)) {
                     var params = std.ArrayList([]const u8).init(self.allocator);
@@ -418,6 +700,7 @@ const Parser = struct {
                     return AST.Declaration{
                         .kind = .fun_decl,
                         .is_mut = is_mut,
+                        .is_match = false,
                         .name = name_token.text,
                         .type_annotation = return_type,
                         .initializer = null,
@@ -437,6 +720,12 @@ const Parser = struct {
                         _ = self.advance(); 
                         const return_expr = try self.parse_expression();
                         _ = self.match(.semicolon);
+                        
+                        // If no explicit return type was provided, try to infer it
+                        if (return_type == null) {
+                            return_type = self.infer_type_from_expression_with_params(return_expr, owned_params);
+                        }
+                        
                         body_expr = return_expr;
                         break;
                     } else if (self.current().?.type == .kw_let or self.current().?.type == .kw_var) {
@@ -487,6 +776,20 @@ const Parser = struct {
                         .visibility = AST.Visibility.private,
                     };
                 }
+                // Ensure we use the inferred return type if available
+                if (return_type == null and body_expr != null) {
+                    switch (body_expr.?) {
+                        .block_expr => |block| {
+                            if (block.expr) |expr| {
+                                return_type = self.infer_type_from_expression_with_params(expr.*, owned_params);
+                            }
+                        },
+                        else => {
+                            return_type = self.infer_type_from_expression_with_params(body_expr.?, owned_params);
+                        },
+                    }
+                }
+                
                 type_annotation = return_type;
                 var final_generic_params: ?[][]const u8 = null;
                 if (generic_params != null) {
@@ -496,6 +799,7 @@ const Parser = struct {
                 return AST.Declaration{
                     .kind = .fun_decl,
                     .is_mut = is_mut,
+                    .is_match = is_match_func,
                     .name = name_token.text,
                     .type_annotation = type_annotation,
                     .initializer = body_expr,
@@ -557,6 +861,12 @@ const Parser = struct {
                         _ = self.advance();
                         const return_expr = try self.parse_expression();
                         _ = self.match(.semicolon);
+                        
+                        // If no explicit return type was provided, try to infer it
+                        if (return_type == null) {
+                            return_type = self.infer_type_from_expression_with_params(return_expr, params.items);
+                        }
+                        
                         body_expr = return_expr;
                         break;
                     } else if (self.current().?.type == .kw_let or self.current().?.type == .kw_var) {
@@ -588,10 +898,28 @@ const Parser = struct {
                         .visibility = AST.Visibility.private,
                     };
                 }
+                // Ensure we use the inferred return type if available
+                if (return_type == null) {
+                    const temp_params = try self.allocator.alloc(AST.Parameter, params.items.len);
+                    for (params.items, 0..) |param, i| {
+                        temp_params[i] = param;
+                    }
+                    switch (block_expr) {
+                        .block_expr => |block| {
+                            if (block.expr) |expr| {
+                                return_type = self.infer_type_from_expression_with_params(expr.*, temp_params);
+                            }
+                        },
+                        else => {},
+                    }
+                    self.allocator.free(temp_params);
+                }
+                
                 params.deinit();
                 return AST.Declaration{
                     .kind = .fun_decl,
                     .is_mut = is_mut,
+                    .is_match = false,
                     .name = name_token.text,
                     .type_annotation = return_type,
                     .initializer = block_expr,
@@ -1483,15 +1811,7 @@ const Parser = struct {
                 
                 return base_type;
             },
-            .kw_array => {
-                _ = self.advance();
-                _ = try self.expect(.less);
-                const element_type = try self.parse_type();
-                _ = try self.expect(.greater);
-                const elem_type_ptr = try self.allocator.create(AST.Type);
-                elem_type_ptr.* = element_type;
-                return AST.Type{ .array = AST.ArrayType{ .element_type = elem_type_ptr, .size = null } };
-            },
+
             .identifier => {
                 _ = self.advance();
                 var base_type: AST.Type = undefined;
@@ -1620,6 +1940,7 @@ const Parser = struct {
                         .parameters = try params.toOwnedSlice(),
                         .return_type = return_type orelse AST.Type{ .named = "void" },
                         .body = body orelse AST.Block{ .statements = &[_]AST.Statement{}, .expr = null },
+                        .match = false,
                     });
                 },
                 .kw_const => {
@@ -1633,6 +1954,7 @@ const Parser = struct {
                         .parameters = &[_]AST.Parameter{},
                         .return_type = const_type,
                         .body = AST.Block{ .statements = &[_]AST.Statement{}, .expr = null },
+                        .match = false,
                     });
                 },
                 else => {
@@ -1698,17 +2020,35 @@ const Parser = struct {
     }
     fn validate_fum_grouping(self: *Parser, program: AST.Program) ParseError!void {
         var fum_positions = std.HashMap([]const u8, std.ArrayList(usize), std.hash_map.StringContext, std.hash_map.default_max_load_percentage).init(self.allocator);
+        var fm_positions = std.HashMap([]const u8, std.ArrayList(usize), std.hash_map.StringContext, std.hash_map.default_max_load_percentage).init(self.allocator);
         defer {
             var iterator = fum_positions.iterator();
             while (iterator.next()) |entry| {
                 entry.value_ptr.deinit();
             }
             fum_positions.deinit();
+            
+            var fm_iterator = fm_positions.iterator();
+            while (fm_iterator.next()) |entry| {
+                entry.value_ptr.deinit();
+            }
+            fm_positions.deinit();
         }
         
         for (program.items, 0..) |item, i| {
             if (item == .declaration and item.declaration.kind == .fun_decl) {
                 const decl = item.declaration;
+                
+                // Check for fm functions (is_match = true)
+                if (decl.is_match) {
+                    const result = fm_positions.getOrPut(decl.name) catch return ParseError.OutOfMemory;
+                    if (!result.found_existing) {
+                        result.value_ptr.* = std.ArrayList(usize).init(self.allocator);
+                    }
+                    result.value_ptr.append(i) catch return ParseError.OutOfMemory;
+                }
+                
+                // Check for fum functions (attributes)
                 if (decl.attributes) |attrs| {
                     for (attrs) |attr| {
                         if (std.mem.eql(u8, attr.name, "fum")) {
@@ -1724,6 +2064,21 @@ const Parser = struct {
             }
         }
         
+        // Validate fm function grouping
+        var fm_iterator = fm_positions.iterator();
+        while (fm_iterator.next()) |entry| {
+            const positions = entry.value_ptr.items;
+            if (positions.len > 1) {
+                for (positions[1..], 1..) |pos, idx| {
+                    if (pos != positions[idx - 1] + 1) {
+                        std.debug.print("Error: FM functions with name '{s}' must be grouped together\n", .{entry.key_ptr.*});
+                        return ParseError.UnexpectedToken;
+                    }
+                }
+            }
+        }
+        
+        // Validate fum function grouping
         var iterator = fum_positions.iterator();
         while (iterator.next()) |entry| {
             const positions = entry.value_ptr.items;
@@ -1935,6 +2290,7 @@ const Parser = struct {
         return AST.Declaration{
             .kind = .typealias_decl,
             .is_mut = false,
+            .is_match = false,
             .name = alias_name.text,
             .type_annotation = target_type,
             .initializer = null,
@@ -2057,6 +2413,7 @@ const Parser = struct {
                 .statements = try body_statements.toOwnedSlice(), 
                 .expr = body_expr 
             },
+            .match = false,
         };
     }
 };
@@ -2385,6 +2742,7 @@ fn print_ast_node(writer: anytype, node: AST.ASTNode, indent: usize) !void {
             try writer.print("{s}  kind: {s}\n", .{ prefix, @tagName(decl.kind) });
             try writer.print("{s}  name: \"{s}\"\n", .{ prefix, decl.name });
             try writer.print("{s}  is_mut: {any}\n", .{ prefix, decl.is_mut });
+            try writer.print("{s}  is_match: {any}\n", .{ prefix, decl.is_match });
             if (decl.attributes) |attrs| {
                 try writer.print("{s}  attributes: [\n", .{prefix});
                 for (attrs, 0..) |attr, i| {

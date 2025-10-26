@@ -32,6 +32,7 @@ pub const TokenType = enum {
     kw_enum,
     kw_struct,
     kw_func,
+    kw_fm,
     kw_fum,
     kw_trait,
     kw_const,
@@ -121,7 +122,7 @@ pub const TokenType = enum {
     kw_string,
     kw_string16,
     kw_string32,
-    kw_array,
+
     kw_map,
     kw_vec,
 
